@@ -5,8 +5,10 @@ plugins {
 
 // CI signs with a persistent key (GitHub secrets) so installed builds can
 // self-update in place. Local/keyless builds fall back to the default debug key.
-val ciKeystorePath: String? = System.getenv("SIGNING_KEYSTORE_PATH")
-    ?.takeIf { java.io.File(it).let { f -> f.exists() && f.length() > 0 } }
+val ciKeystorePath: String? = System.getenv("SIGNING_KEYSTORE_PATH")?.takeIf { path ->
+    val f = File(path)
+    f.exists() && f.length() > 0
+}
 
 android {
     namespace = "com.mawa.face"
