@@ -25,6 +25,9 @@ enum class Mood(
     EXCITED(1.00f, 2f, 0.95f, 1.30f, 1.4f),
 }
 
+/** One-shot scripted animations layered on top of the current state. */
+enum class Gesture { LOCK_ON }
+
 /** Per-eye animatable parameters. Everything is eased — nothing ever snaps. */
 class EyeParams {
     var openness = 1f      // 0 closed .. 1 open
@@ -74,11 +77,21 @@ class AnimationEngine {
     var sleeping = false
         private set
 
+    // --- gestures ----------------------------------------------------------
+    private var gesture: Gesture? = null
+    private var gestureStart = 0.0
+
     // --- burn-in drift -----------------------------------------------------
     var driftX = 0f
         private set
     var driftY = 0f
         private set
+
+    /** Play a one-shot scripted animation on top of the current state. */
+    fun play(g: Gesture) {
+        gesture = g
+        gestureStart = clock
+    }
 
     /** Feed a mapped gaze target (-1..1) plus proximity (bbox area fraction). */
     fun onFace(gx: Float, gy: Float, prox: Float) {
@@ -142,7 +155,7 @@ class AnimationEngine {
         }
 
         // Openness target: mood base x blink, or near-closed breathing in sleep
-        val opennessTarget = if (sleeping) {
+        var opennessTarget = if (sleeping) {
             0.06f + 0.03f * sin(clock * 2.0 * Math.PI / 4.5).toFloat()
         } else {
             mood.opennessBase * blinkFactor
@@ -150,8 +163,21 @@ class AnimationEngine {
 
         // Startle overrides pupil size briefly
         val startled = now < startleUntil
-        val pupilTarget = if (startled) 0.7f else mood.pupilScale * (1f + 0.25f * lastProx.coerceAtMost(0.4f))
+        var pupilTarget = if (startled) 0.7f else mood.pupilScale * (1f + 0.25f * lastProx.coerceAtMost(0.4f))
         val lidTarget = if (startled) 8f else mood.lidAngle
+
+        // One-shot gestures override the targets while they play
+        if (gesture == Gesture.LOCK_ON) {
+            val p = (clock - gestureStart).toFloat()
+            when {
+                p < 0.30f -> pupilTarget = 0.55f                       // narrow: focusing...
+                p < 0.44f -> { opennessTarget = 0f }                   // snap blink
+                p < 0.58f -> { opennessTarget = 1f; pupilTarget = 0.55f }
+                p < 0.72f -> { opennessTarget = 0f }                   // second blink
+                p < 1.80f -> pupilTarget = 1.45f                       // wide dilate: found you
+                else -> gesture = null
+            }
+        }
 
         applyTo(left, opennessTarget, pupilTarget, lidTarget, dtSec)
         applyTo(right, opennessTarget, pupilTarget, -lidTarget, dtSec)  // mirrored tilt

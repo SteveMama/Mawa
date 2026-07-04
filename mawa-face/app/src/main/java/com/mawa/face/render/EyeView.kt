@@ -25,6 +25,9 @@ class EyeView @JvmOverloads constructor(
     var debug = false
     var debugText = ""
 
+    /** Raw face position (0..1 in camera frame), for the calibration overlay. */
+    var rawFace: Pair<Float, Float>? = null
+
     private var lastFrameNs = 0L
 
     private val scleraPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -40,8 +43,16 @@ class EyeView @JvmOverloads constructor(
         style = Paint.Style.FILL
     }
     private val debugPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#446644")
-        textSize = 28f
+        color = Color.parseColor("#7FBF7F")
+        textSize = 34f
+    }
+    private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#224422")
+        strokeWidth = 2f
+    }
+    private val faceDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#E24B4A")
+        style = Paint.Style.FILL
     }
     private val eyePath = Path()
 
@@ -61,11 +72,30 @@ class EyeView @JvmOverloads constructor(
         drawEye(canvas, cx - eyeGap / 2f, cy, engine.left)
         drawEye(canvas, cx + eyeGap / 2f, cy, engine.right)
 
-        if (debug) {
-            canvas.drawText(debugText, 24f, height - 32f, debugPaint)
-        }
+        if (debug) drawCalibrationOverlay(canvas)
 
         postInvalidateOnAnimation()
+    }
+
+    /**
+     * Calibration mode (5-tap to toggle): center crosshair, a red dot showing
+     * where the camera currently sees your face (mirrored so it moves the way
+     * you do), live numbers, and the one instruction that matters.
+     */
+    private fun drawCalibrationOverlay(canvas: Canvas) {
+        // Center crosshair
+        canvas.drawLine(width / 2f, 0f, width / 2f, height.toFloat(), gridPaint)
+        canvas.drawLine(0f, height / 2f, width.toFloat(), height / 2f, gridPaint)
+
+        // Where the camera thinks your face is (mirrored for intuitiveness):
+        // walk left, the dot moves left. Goal: dot near the crosshair center
+        // when you stand at your usual spot — then long-press.
+        rawFace?.let { (rx, ry) ->
+            canvas.drawCircle((1f - rx) * width, ry * height, 14f, faceDotPaint)
+        }
+
+        canvas.drawText("CALIBRATE: stand at your spot, LONG-PRESS. 5-tap to exit.", 24f, 48f, debugPaint)
+        canvas.drawText(debugText, 24f, height - 32f, debugPaint)
     }
 
     private fun drawEye(canvas: Canvas, ex: Float, ey: Float, p: EyeParams) {

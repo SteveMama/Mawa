@@ -13,8 +13,9 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import com.mawa.face.audio.Speech
 import com.mawa.face.render.EyeView
-import com.mawa.face.render.Mood
+import com.mawa.face.render.Gesture
 import com.mawa.face.update.Updater
 import com.mawa.face.vision.FaceTracker
 import com.mawa.face.vision.GazeMapper
@@ -24,6 +25,7 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var eyeView: EyeView
     private lateinit var prefs: SharedPreferences
+    private lateinit var speech: Speech
     private var tracker: FaceTracker? = null
     private val handler = Handler(Looper.getMainLooper())
 
@@ -55,6 +57,7 @@ class MainActivity : ComponentActivity() {
 
         prefs = getSharedPreferences("mawa", MODE_PRIVATE)
         GazeMapper.load(prefs)
+        speech = Speech(this)
 
         // Wall-appliance behaviors
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -82,6 +85,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+        speech.shutdown()
         super.onDestroy()
     }
 
@@ -93,6 +97,7 @@ class MainActivity : ComponentActivity() {
                 lastRawX = cx
                 lastRawY = cy
                 lastFaceAtMs = SystemClock.elapsedRealtime()
+                eyeView.rawFace = Pair(cx, cy)
                 val (gx, gy) = GazeMapper.map(cx, cy)
                 eyeView.engine.onFace(gx, gy, prox)
                 eyeView.debugText = String.format(
@@ -103,7 +108,10 @@ class MainActivity : ComponentActivity() {
                     BuildConfig.VERSION_CODE,
                 )
             },
-            onLost = { eyeView.engine.onFaceLost() },
+            onLost = {
+                eyeView.rawFace = null
+                eyeView.engine.onFaceLost()
+            },
         ).also { it.start() }
     }
 
@@ -116,9 +124,9 @@ class MainActivity : ComponentActivity() {
         val faceFresh = SystemClock.elapsedRealtime() - lastFaceAtMs < 2000
         if (!faceFresh) return false
         GazeMapper.calibrateTo(lastRawX, lastRawY, prefs)
-        // A happy little acknowledgment
-        eyeView.engine.mood = Mood.HAPPY
-        handler.postDelayed({ eyeView.engine.mood = Mood.NEUTRAL }, 2500)
+        // Lock-on: pupils narrow, double blink, then wide dilated "found you"
+        eyeView.engine.play(Gesture.LOCK_ON)
+        handler.postDelayed({ speech.say("Found you, Pranav.") }, 700)
         return true
     }
 
