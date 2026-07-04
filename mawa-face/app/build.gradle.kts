@@ -52,6 +52,11 @@ android {
         buildConfig = true
     }
 
+    // .tflite models must not be compressed or the Interpreter can't mmap them
+    androidResources {
+        noCompress += "tflite"
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -72,4 +77,8 @@ dependencies {
 
     // Bundled ML Kit face detection — model ships in the APK, fully on-device
     implementation("com.google.mlkit:face-detection:16.1.7")
+
+    // On-device face recognition (embeddings). Dormant until a model is added
+    // at app/src/main/assets/mobilefacenet.tflite.
+    implementation("org.tensorflow:tensorflow-lite:2.14.0")
 }

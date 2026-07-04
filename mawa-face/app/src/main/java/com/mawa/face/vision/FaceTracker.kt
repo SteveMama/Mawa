@@ -2,6 +2,8 @@ package com.mawa.face.vision
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.os.SystemClock
 import android.util.Log
 import android.util.Size
@@ -36,7 +38,11 @@ class FaceTracker(
     private val onLost: () -> Unit,
     private val onStatus: (String) -> Unit,
     private val onLuma: (Float) -> Unit,
+    private val onFaceCrop: (Bitmap) -> Unit = {},
 ) {
+    /** Set true once a recognition model is loaded, to start producing crops. */
+    var recognitionEnabled = false
+    private var lastCropAt = 0L
     private val detector = FaceDetection.getClient(
         FaceDetectorOptions.Builder()
             .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
@@ -141,6 +147,13 @@ class FaceTracker(
                     val le = face.leftEyeOpenProbability ?: 1f
                     val re = face.rightEyeOpenProbability ?: 1f
                     onFace(cx, cy, prox, faces.size, (le + re) / 2f)
+
+                    // Occasionally hand a cropped, upright face bitmap to the
+                    // recognizer (throttled — embedding is comparatively costly)
+                    if (recognitionEnabled && now - lastCropAt > CROP_INTERVAL_MS) {
+                        lastCropAt = now
+                        cropFace(proxy, rotation, b)?.let(onFaceCrop)
+                    }
                 } else if (!lostReported && now - lastSeenAt > LOST_AFTER_MS) {
                     lostReported = true
                     onLost()
@@ -153,9 +166,34 @@ class FaceTracker(
             .addOnCompleteListener { proxy.close() }
     }
 
+    /**
+     * Convert the current frame to a bitmap, rotate it into the same upright
+     * space ML Kit reported the box in, and crop to the face (clamped). Any
+     * failure returns null — recognition is always best-effort.
+     */
+    @SuppressLint("UnsafeOptInUsageError")
+    private fun cropFace(proxy: ImageProxy, rotation: Int, box: android.graphics.Rect): Bitmap? {
+        return try {
+            var bmp = proxy.toBitmap()
+            if (rotation != 0) {
+                val m = Matrix().apply { postRotate(rotation.toFloat()) }
+                bmp = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
+            }
+            val x = box.left.coerceIn(0, bmp.width - 1)
+            val y = box.top.coerceIn(0, bmp.height - 1)
+            val w = box.width().coerceIn(1, bmp.width - x)
+            val h = box.height().coerceIn(1, bmp.height - y)
+            if (w < 20 || h < 20) null else Bitmap.createBitmap(bmp, x, y, w, h)
+        } catch (e: Exception) {
+            Log.w(TAG, "face crop failed", e)
+            null
+        }
+    }
+
     companion object {
         private const val TAG = "FaceTracker"
         private const val FRAME_INTERVAL_MS = 180L   // ~5 fps
         private const val LOST_AFTER_MS = 2000L      // hold gaze 2 s before wandering
+        private const val CROP_INTERVAL_MS = 1200L   // recognition cadence
     }
 }

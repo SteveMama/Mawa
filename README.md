@@ -31,6 +31,26 @@ What works in this phase:
 - Kiosk behaviors: fullscreen immersive, screen always on, relaunch on
   boot, auto-restart on crash
 - Calibration overlay: tap the screen 5 times to see raw/mapped gaze values
+- Ambient awareness: sleeps (with a floating ZZZ) when the lights go off,
+  animates live weather (rain/snow/fog/thunder) over the eyes, greets you by
+  time of day, blinks back when you blink, closes its eyes when you cover the
+  camera, warms the black slightly at golden hour
+
+## Face recognition (optional, dormant until a model is added)
+
+The recognition pipeline (`FaceRecognizer`) is wired but inactive until a
+compatible TFLite embedding model is present:
+
+1. Drop a MobileFaceNet-style model at
+   `mawa-face/app/src/main/assets/mobilefacenet.tflite` (112×112×3 input,
+   float embedding output).
+2. Rebuild. On the phone, long-press once while it sees your face — that
+   calibrates gaze *and* enrolls you.
+3. Tune `FaceRecognizer.THRESHOLD` on-device: same person scores high on
+   cosine similarity, strangers low.
+
+With no model present the app runs exactly as before — recognition never
+activates.
 
 ## Building & installing
 

@@ -21,6 +21,7 @@ import com.mawa.face.sensing.LightSensor
 import com.mawa.face.update.Updater
 import com.mawa.face.util.LocationHelper
 import com.mawa.face.util.TimeOfDay
+import com.mawa.face.vision.FaceRecognizer
 import com.mawa.face.vision.FaceTracker
 import com.mawa.face.vision.GazeMapper
 import com.mawa.face.weather.WeatherClient
@@ -33,7 +34,13 @@ class MainActivity : ComponentActivity() {
     private lateinit var speech: Speech
     private var tracker: FaceTracker? = null
     private var lightSensor: LightSensor? = null
+    private var recognizer: FaceRecognizer? = null
     private val handler = Handler(Looper.getMainLooper())
+
+    // Face recognition (dormant until a model is bundled)
+    private var enrolledEmbedding: FloatArray? = null
+    private var lastEmbedding: FloatArray? = null
+    private var recognizedIsMe = false
 
     // Last raw face observation, used by long-press calibration
     private var lastRawX = 0.5f
@@ -100,6 +107,8 @@ class MainActivity : ComponentActivity() {
         prefs = getSharedPreferences("mawa", MODE_PRIVATE)
         GazeMapper.load(prefs)
         speech = Speech(this)
+        recognizer = FaceRecognizer(this)
+        enrolledEmbedding = loadEmbedding()
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         if (Build.VERSION.SDK_INT >= 27) {
@@ -186,22 +195,47 @@ class MainActivity : ComponentActivity() {
                 // Lens covered = dark frame while the room is still lit -> polite DND
                 eyeView.engine.covered = luma < COVERED_LUMA && latestLux > DARK_LUX
             },
-        ).also { it.start() }
+            onFaceCrop = { bmp ->
+                val emb = recognizer?.embed(bmp) ?: return@FaceTracker
+                lastEmbedding = emb
+                val enrolled = enrolledEmbedding
+                recognizedIsMe = enrolled != null &&
+                    FaceRecognizer.cosine(emb, enrolled) > FaceRecognizer.THRESHOLD
+            },
+        ).also {
+            it.recognitionEnabled = recognizer?.enabled == true
+            it.start()
+        }
+    }
+
+    // --- enrolled-embedding persistence (comma-separated floats) ----------
+    private fun loadEmbedding(): FloatArray? =
+        prefs.getString("face_embedding", null)
+            ?.split(",")?.mapNotNull { it.toFloatOrNull() }?.toFloatArray()
+            ?.takeIf { it.isNotEmpty() }
+
+    private fun saveEmbedding(e: FloatArray) {
+        prefs.edit().putString("face_embedding", e.joinToString(",")).apply()
+        enrolledEmbedding = e
     }
 
     private fun refreshOverlay() {
         eyeView.debugText = camStatus + "\n" + faceLine
     }
 
-    /** Spoken greeting when you return after being away a while (once per visit). */
+    /**
+     * Spoken greeting when you return after being away a while (once per visit).
+     * If recognition is active and enrolled, only greets you by name when it's
+     * actually you; otherwise falls back to greeting anyone (recognition off).
+     */
     private fun greetOnArrival() {
         if (greetedThisVisit || eyeView.engine.ambientDark) return
+        val recognitionActive = recognizer?.enabled == true && enrolledEmbedding != null
+        if (recognitionActive && !recognizedIsMe) return  // a face, but not you — wait
         val now = SystemClock.elapsedRealtime()
+        greetedThisVisit = true
         if (now - awaySinceMs > GREET_GAP_MS) {
-            greetedThisVisit = true
             handler.postDelayed({ speech.say(TimeOfDay.greeting()) }, 500)
-        } else {
-            greetedThisVisit = true  // seen continuously; don't greet, but mark visit
         }
     }
 
@@ -235,6 +269,13 @@ class MainActivity : ComponentActivity() {
         val faceFresh = SystemClock.elapsedRealtime() - lastFaceAtMs < 2000
         if (!faceFresh) return false
         GazeMapper.calibrateTo(lastRawX, lastRawY, prefs)
+        // Long-press does double duty: calibrate gaze AND enroll your face
+        // (when a recognition model is present), so "you" is learned from the
+        // same spot you calibrated from.
+        lastEmbedding?.let {
+            saveEmbedding(it)
+            recognizedIsMe = true
+        }
         eyeView.engine.play(Gesture.LOCK_ON)
         handler.postDelayed({ speech.say("Found you, Pranav.") }, 700)
         return true
