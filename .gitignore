@@ -1,0 +1,20 @@
+# macOS
+.DS_Store
+
+# Android / Gradle
+mawa-face/.gradle/
+mawa-face/build/
+mawa-face/app/build/
+mawa-face/local.properties
+mawa-face/.idea/
+mawa-face/captures/
+*.apk
+*.aab
+
+# Python (mawa-brain, Phase 2+)
+__pycache__/
+*.pyc
+.venv/
+.env
+token.json
+*.log
