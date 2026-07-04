@@ -8,17 +8,18 @@ a personality, and a small server brain behind it.
 - [TODO.md](TODO.md) — phased build checklist
 - [TECHNICAL_DESIGN.md](TECHNICAL_DESIGN.md) — full architecture, protocol
   spec, mood system, milestones
+- [MEMORY.md](MEMORY.md) — durable project state, decisions, and next build order
 
 ## Layout
 
 ```
 mawa-face/    Android app (Kotlin) — the face: eyes, face tracking, kiosk mode
-mawa-brain/   Python server — LLM personality, calendar/email, Spotify (Phase 2+)
+mawa-brain/   Next.js app on Vercel — scene manifests, dashboard, connectors
 ```
 
 ## Status
 
-**Phase 1 (M1):** eyes + on-device face tracking. No network, no audio yet.
+**Phase 1 (M1) is complete. The first cloud-brain slice is live.**
 
 What works in this phase:
 
@@ -35,43 +36,43 @@ What works in this phase:
   animates live weather (rain/snow/fog/thunder) over the eyes, greets you by
   time of day, blinks back when you blink, closes its eyes when you cover the
   camera, warms the black slightly at golden hour
+- Vercel brain at [mawa-brain.vercel.app](https://mawa-brain.vercel.app):
+  connector dashboard and a schema-versioned `/api/manifest`
+- Weather connector #1: the phone polls the brain every five minutes and
+  renders a cloud-composed status panel plus the matching weather animation;
+  local Open-Meteo remains the offline fallback
 
-## Face recognition (optional, dormant until a model is added)
+## Face recognition
 
-The recognition pipeline (`FaceRecognizer`) is wired but inactive until a
-compatible TFLite embedding model is present:
+CI downloads and bundles a compatible MobileFaceNet TFLite model. The
+recognition pipeline is active in CI builds but still needs wall testing:
 
-1. Drop a MobileFaceNet-style model at
-   `mawa-face/app/src/main/assets/mobilefacenet.tflite` (112×112×3 input,
-   float embedding output).
-2. Rebuild. On the phone, long-press once while it sees your face — that
+1. On the phone, long-press once while it sees your face — that
    calibrates gaze *and* enrolls you.
-3. Tune `FaceRecognizer.THRESHOLD` on-device: same person scores high on
+2. Verify strangers do not trigger the named greeting.
+3. Tune `FaceRecognizer.THRESHOLD`: same person scores high on
    cosine similarity, strangers low.
-
-With no model present the app runs exactly as before — recognition never
-activates.
 
 ## Building & installing
 
-1. Install [Android Studio](https://developer.android.com/studio) (brings
-   the Android SDK + adb).
-2. Open the `mawa-face/` folder in Android Studio, or from the CLI:
+Android APKs are normally built and signed by GitHub Actions on every push to
+`main`, then published to the rolling `latest` release for OTA installation.
+For a local build, install Android Studio and run:
 
-   ```sh
-   cd mawa-face
-   ./gradlew assembleDebug        # first run downloads Gradle + deps
-   adb install app/build/outputs/apk/debug/app-debug.apk
-   ```
+```sh
+cd mawa-face
+./gradlew assembleDebug        # first run downloads Gradle + deps
+adb install app/build/outputs/apk/debug/app-debug.apk
+```
 
-3. On the phone: enable Developer options (tap Build number 7×), enable
-   USB debugging, plug in, accept the prompt.
-4. For updates without taking the phone off the wall:
+On the phone: enable Developer options (tap Build number 7×), enable
+USB debugging, plug in, accept the prompt.
+For updates without taking the phone off the wall:
 
-   ```sh
-   adb tcpip 5555
-   adb connect <phone-ip>:5555
-   ```
+```sh
+adb tcpip 5555
+adb connect <phone-ip>:5555
+```
 
 ## Phone setup (wall appliance)
 

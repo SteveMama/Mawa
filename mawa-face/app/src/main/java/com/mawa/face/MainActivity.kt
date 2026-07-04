@@ -14,6 +14,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.mawa.face.audio.Speech
+import com.mawa.face.net.SceneManifestClient
 import com.mawa.face.render.EyeView
 import com.mawa.face.render.Gesture
 import com.mawa.face.render.Mood
@@ -35,12 +36,14 @@ class MainActivity : ComponentActivity() {
     private var tracker: FaceTracker? = null
     private var lightSensor: LightSensor? = null
     private var recognizer: FaceRecognizer? = null
+    private val manifestClient = SceneManifestClient(BuildConfig.BRAIN_BASE_URL)
     private val handler = Handler(Looper.getMainLooper())
 
     // Face recognition (dormant until a model is bundled)
     private var enrolledEmbedding: FloatArray? = null
     private var lastEmbedding: FloatArray? = null
     private var recognizedIsMe = false
+    private var recognitionScore: Float? = null
 
     // Last raw face observation, used by long-press calibration
     private var lastRawX = 0.5f
@@ -49,6 +52,8 @@ class MainActivity : ComponentActivity() {
 
     // Overlay status + new-person greeting
     private var camStatus = "starting..."
+    private var brainStatus = "brain: starting..."
+    private var sceneRequestRunning = false
     private var faceLine = ""
     private var prevFaceCount = 0
     private var newPersonMutedUntil = 0L
@@ -69,7 +74,7 @@ class MainActivity : ComponentActivity() {
     private val permissions =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
             if (result[Manifest.permission.CAMERA] == true) startTracking()
-            refreshWeather()
+            refreshScene()
         }
 
     private val updateCheck = object : Runnable {
@@ -94,10 +99,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private val weatherTick = object : Runnable {
+    private val sceneTick = object : Runnable {
         override fun run() {
-            refreshWeather()
-            handler.postDelayed(this, 15 * 60_000)
+            refreshScene()
+            handler.postDelayed(this, SCENE_CHECK_MS)
         }
     }
 
@@ -139,7 +144,7 @@ class MainActivity : ComponentActivity() {
 
         handler.post(updateCheck)
         handler.post(ambientTick)
-        handler.post(weatherTick)
+        handler.post(sceneTick)
     }
 
     override fun onDestroy() {
@@ -149,8 +154,27 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    private fun refreshWeather() {
+    private fun refreshScene() {
+        if (sceneRequestRunning) return
+        sceneRequestRunning = true
         val (lat, lon) = LocationHelper.lastKnown(this)
+        manifestClient.fetch(lat, lon, BuildConfig.VERSION_CODE) { result ->
+            runOnUiThread {
+                sceneRequestRunning = false
+                result.onSuccess { snapshot ->
+                    snapshot.weather?.let { eyeView.weather = it }
+                    eyeView.scenePanels = snapshot.panels
+                    brainStatus = "brain: online  ${snapshot.manifestId}"
+                }.onFailure { error ->
+                    brainStatus = "brain: offline (${error.message ?: "unavailable"})"
+                    refreshLocalWeather(lat, lon)
+                }
+                refreshOverlay()
+            }
+        }
+    }
+
+    private fun refreshLocalWeather(lat: Double, lon: Double) {
         WeatherClient.fetch(lat, lon) { condition, _ ->
             runOnUiThread { eyeView.weather = condition }
         }
@@ -173,8 +197,9 @@ class MainActivity : ComponentActivity() {
                 blinkBack(eyeOpen)
                 faceLine = String.format(
                     Locale.US,
-                    "raw %.2f,%.2f  gaze %.2f,%.2f  prox %.3f  lux %.0f  faces %d  v%d",
+                    "raw %.2f,%.2f  gaze %.2f,%.2f  prox %.3f  lux %.0f  faces %d  v%d%s",
                     cx, cy, gx, gy, prox, latestLux, count, BuildConfig.VERSION_CODE,
+                    recognitionSummary(),
                 )
                 refreshOverlay()
             },
@@ -199,8 +224,8 @@ class MainActivity : ComponentActivity() {
                 val emb = recognizer?.embed(bmp) ?: return@FaceTracker
                 lastEmbedding = emb
                 val enrolled = enrolledEmbedding
-                recognizedIsMe = enrolled != null &&
-                    FaceRecognizer.cosine(emb, enrolled) > FaceRecognizer.THRESHOLD
+                recognitionScore = enrolled?.let { FaceRecognizer.cosine(emb, it) }
+                recognizedIsMe = recognitionScore?.let { it > FaceRecognizer.THRESHOLD } == true
             },
         ).also {
             it.recognitionEnabled = recognizer?.enabled == true
@@ -220,7 +245,21 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refreshOverlay() {
-        eyeView.debugText = camStatus + "\n" + faceLine
+        eyeView.debugText = camStatus + "\n" + brainStatus + "\n" + faceLine
+    }
+
+    private fun recognitionSummary(): String {
+        if (recognizer?.enabled != true) return "  rec:model-off"
+        if (enrolledEmbedding == null) return "  rec:not-enrolled"
+        val score = recognitionScore ?: return "  rec:waiting"
+        val identity = if (recognizedIsMe) "ME" else "OTHER"
+        return String.format(
+            Locale.US,
+            "  rec:%.3f/%s (cut %.2f)",
+            score,
+            identity,
+            FaceRecognizer.THRESHOLD,
+        )
     }
 
     /**
@@ -312,6 +351,7 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         private const val UPDATE_CHECK_MS = 15 * 60 * 1000L
+        private const val SCENE_CHECK_MS = 5 * 60 * 1000L
         private const val GREET_GAP_MS = 30 * 60 * 1000L
         private const val DARK_LUX = 6f
         private const val COVERED_LUMA = 12f

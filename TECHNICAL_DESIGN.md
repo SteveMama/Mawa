@@ -1,6 +1,6 @@
 # Mawa — Technical Design Document
 
-Status: draft v1 · 2026-07-04
+Status: implemented v2 · 2026-07-04
 Companion docs: [TODO.md](TODO.md) (task checklist)
 
 ---
@@ -11,8 +11,8 @@ Mawa is a wall-mounted ambient companion built from an old OnePlus phone
 mounted in **landscape**. The phone displays two animated eyes that track the
 user's face via the front camera, speaks through the phone speaker, listens
 via the phone mic after a wake word, and is driven by a small "brain" server
-that holds the LLM, calendar/email integrations, music control, and
-personality state.
+that composes declarative scenes, hosts integrations, and will hold the LLM,
+music control, and personality state.
 
 ### Goals
 
@@ -26,7 +26,6 @@ personality state.
 
 ### Non-goals (v1)
 
-- Face *recognition* (identifying who is in the room) — detection only.
 - Multi-room / multi-device.
 - Direct Alexa device control (no good public API; Spotify Connect covers
   the music use case).
@@ -48,28 +47,26 @@ personality state.
 │  Porcupine wake word ──► mic capture ──► STT                     │
 │  Android TTS ◄── speech queue                                    │
 └───────────────┬──────────────────────────────────────────────────┘
-                │ WebSocket (JSON, LAN)
+                │ HTTPS poll (versioned JSON manifest, every ~5 min)
 ┌───────────────▼──────────────────────────────────────────────────┐
-│  Brain server "mawa-brain" (Python / FastAPI, runs on Mac→Pi/VPS)│
+│  Brain "mawa-brain" (Next.js / TypeScript on Vercel)             │
 │                                                                  │
-│  WS gateway ── Personality engine ── LLMProvider (pluggable)     │
-│       │              │                  ├─ Groq (default, free)  │
-│  Scheduler ──── Mood state machine     ├─ Anthropic (optional)  │
-│  (APScheduler)       │                  └─ Ollama (local, opt.)  │
-│                      │                                           │
-│  Integrations: Google Calendar · Gmail · Spotify Connect         │
-│  Memory: markdown/JSON files on disk                             │
+│  Manifest composer ◄── connector registry                       │
+│       │                 ├─ Weather (live)                        │
+│  Dashboard              ├─ Calendar / Gmail (planned)            │
+│       │                 └─ Spotify (planned)                     │
+│  Personality engine ── LLMProvider (Groq default, planned)       │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
 ### Design principles
 
-1. **Dumb face, smart brain.** The phone renders and senses; it makes no
-   decisions beyond local animation. All intelligence, secrets, and API
-   tokens live on the server.
+1. **Resilient face, smart brain.** The phone owns vision and lifelike local
+   behavior. The brain composes optional information scenes. All secrets and
+   OAuth tokens live in Vercel.
 2. **Vision never leaves the device.** ML Kit runs on-phone; only derived
    events ("face appeared at x,y", "face lost") cross the network.
-3. **Offline-degradable.** If the brain is unreachable, the eyes keep
+3. **Offline-degradable.** If Vercel is unreachable, the eyes keep
    working — tracking, blinking, sleeping. Only voice/proactive features
    degrade.
 4. **Provider-pluggable LLM.** The brain talks to one `LLMProvider`
@@ -92,7 +89,7 @@ personality state.
 | Wake word | Picovoice Porcupine (free tier) | On-device, low CPU |
 | STT | Android `SpeechRecognizer` | Free; upgrade path: stream audio to brain → Whisper |
 | TTS | Android `TextToSpeech` | Free; upgrade path: cloud TTS via brain |
-| Networking | OkHttp WebSocket | Reconnect with exponential backoff |
+| Networking | `HttpURLConnection` + JSON | Poll v1 scene manifest; local fallback |
 
 ### 3.2 Module layout
 
@@ -112,7 +109,9 @@ mawa-face/
       WakeWord.kt            // Porcupine
       Speech.kt              // SpeechRecognizer + TTS wrappers
     net/
-      BrainClient.kt         // WebSocket, protocol codec, reconnect
+      SceneManifestClient.kt // HTTPS manifest polling + bounded parser
+    scene/
+      ScenePanel.kt          // Declarative panel model and screen slot
     state/
       AppStateMachine.kt     // see 3.5
     boot/
@@ -236,183 +235,80 @@ state renders (lid angle, blink rate, pupil size, wander speed).
 
 ---
 
-## 4. Brain server — `mawa-brain` (Python)
+## 4. Cloud brain — `mawa-brain` (Next.js on Vercel)
 
-### 4.1 Stack
+### 4.1 Stack and deployment
 
-FastAPI + `uvicorn` (WebSocket endpoint + tiny status page), APScheduler
-(cron-style proactive triggers), `httpx` (LLM + integrations), file-based
-memory. Runs on the Mac during development; target host Raspberry Pi or a
-small VPS. Managed by `launchd`/`systemd`.
+Next.js 16 App Router + strict TypeScript, deployed serverlessly to Vercel at
+`https://mawa-brain.vercel.app`. The dashboard is static; API routes compose
+fresh manifests. Connector fetches are independently failure-contained so one
+bad provider cannot take down the scene.
 
 ### 4.2 Module layout
 
 ```
 mawa-brain/
-  main.py            # FastAPI app, WS endpoint /face
-  config.py          # env-driven settings (see §10)
-  gateway.py         # protocol codec, connection registry, send helpers
-  brain.py           # conversation + proactive utterance generation
-  llm/
-    provider.py      # LLMProvider interface
-    groq.py          # default: OpenAI-compatible chat completions
-    anthropic_p.py   # optional
-    ollama.py        # optional, fully local
-  mood.py            # mood state machine (see 4.5)
-  scheduler.py       # cron triggers -> brain
-  budget.py          # chattiness budget
-  integrations/
-    google_cal.py    # Calendar read-only
-    gmail.py         # Gmail read-only
-    spotify.py       # Spotify Connect
-  memory/
-    store.py         # markdown notes the LLM can read/write
+  app/
+    page.tsx                 # connector/status dashboard
+    api/health/route.ts      # liveness
+    api/manifest/route.ts    # phone scene endpoint
+  lib/
+    manifest.ts              # shared v1 schema
+    compose-manifest.ts      # fan-out + bounded composition
+    connectors/
+      registry.ts            # active + planned connectors
+      weather.ts             # Open-Meteo connector
 ```
 
-### 4.3 LLM layer (pluggable, Groq default)
+Each connector returns status, zero or more short panels, and optional scene
+cues such as weather or mood. The composer runs connectors concurrently,
+flattens their output, and sets explicit generation/expiry times.
 
-```python
-class LLMProvider(Protocol):
-    async def complete(self, system: str, messages: list[dict],
-                       max_tokens: int = 300) -> str: ...
-```
+### 4.3 Future LLM and state
 
-**Default — Groq** (free tier, OpenAI-compatible):
+The conversational endpoint will depend on an `LLMProvider` TypeScript
+interface. Groq is the default; Anthropic remains an optional provider. Local
+Ollama is not a Vercel production provider, but can remain a development
+adapter. Rate-limit handling is one bounded retry followed by a short canned
+response so the phone never waits indefinitely.
 
-```python
-# llm/groq.py
-import httpx
+Vercel functions have no durable local filesystem. Conversation memory,
+chattiness budgets, encrypted OAuth refresh tokens, and scheduled connector
+state must use managed durable storage (KV/Postgres) rather than files.
 
-class GroqProvider:
-    BASE = "https://api.groq.com/openai/v1"
+The personality remains dry, warm, slightly theatrical, and brief: one or two
+spoken sentences, no invented calendar/email facts, and no emoji in TTS text.
 
-    def __init__(self, api_key: str, model: str = "llama-3.3-70b-versatile"):
-        self.key, self.model = api_key, model
+### 4.4 Mood and proactive behavior
 
-    async def complete(self, system, messages, max_tokens=300):
-        async with httpx.AsyncClient(timeout=30) as http:
-            r = await http.post(
-                f"{self.BASE}/chat/completions",
-                headers={"Authorization": f"Bearer {self.key}"},
-                json={
-                    "model": self.model,
-                    "max_tokens": max_tokens,
-                    "messages": [{"role": "system", "content": system}, *messages],
-                },
-            )
-            r.raise_for_status()
-            return r.json()["choices"][0]["message"]["content"]
-```
-
-Rate-limit handling: on 429, retry once after `retry-after`; if still
-limited, fall back to a canned response ("Give me a second, I'm thinking
-too hard") so the device never hangs. Groq free-tier limits are generous
-for a single device (tens of RPM), but the budget module also keeps
-call volume low by design.
-
-**Optional — Anthropic** (if personality quality warrants paying): official
-`anthropic` SDK, model `claude-opus-4-8` (or `claude-haiku-4-5` at
-$1/$5 per MTok for the frequent ambient calls — at Mawa's volume either is
-a few dollars a month). Keep the persona system prompt byte-stable and mark
-it with `cache_control: {"type": "ephemeral"}` so repeated calls hit the
-prompt cache.
-
-**Optional — Ollama** (zero cost, fully private): same OpenAI-compatible
-shape at `http://localhost:11434/v1`; a small model (llama3.2 8B) is enough
-for one-liners if the brain host has the RAM.
-
-Provider selection: `LLM_PROVIDER=groq|anthropic|ollama` in config. No code
-changes to switch.
-
-### 4.4 Personality engine
-
-One stable **persona system prompt** (~600 tokens) defining: name (Mawa),
-voice (dry, warm, a little theatrical; 1–2 sentences max per utterance;
-never explains itself; never says "as an AI"), and hard rules (no fake
-facts about calendar/email — only what's in the provided context; ≤2
-sentences; no emoji since output is spoken).
-
-Two call shapes:
-
-1. **Conversational:** user transcript + last ~10 turns + current mood +
-   time of day → reply. Target < 2s wall clock (Groq typically well under).
-2. **Proactive:** scheduler fires with structured context (e.g. today's
-   events JSON) → one utterance. The prompt states the *occasion*
-   ("morning brief", "meeting in 10min") and the mood.
-
-Conversation history: in-memory ring buffer (20 turns), reset nightly.
-Long-term memory: the brain can append "things to remember" to
-`memory/notes.md`; the file is included in the system context (capped at
-2KB, oldest lines pruned).
-
-### 4.5 Mood state machine
-
-Mood is a single enum + intensity, persisted across restarts.
-
-| Mood | Eye styling (sent to phone) | Entered by |
-|---|---|---|
-| `neutral` | defaults | baseline decay from any mood after ~30 min |
-| `happy` | squash 0.85, faster wander | meeting cancelled; user came home (face after >4h absence) |
-| `grumpy` | lidAngle −10°, slow blinks | 7am meeting appears on tomorrow's calendar; >5 meetings today |
-| `sleepy` | openness 0.55, blink 2× slower | after 22:30; before 07:00 |
-| `suspicious` | openness 0.7, pupils small | Δproximity spike (someone rushed the phone) — phone-local trigger |
-| `excited` | pupilScale 1.3, quick saccades | music started; Friday after 17:00 |
-
-Transitions are events → `mood.set(m, intensity, ttl)`; TTL decay returns
-to neutral. The mood is included in every LLM prompt so the *words* match
-the *face*.
-
-### 4.6 Scheduler & chattiness budget
-
-APScheduler jobs (all in local timezone):
-
-| Job | When | Action |
-|---|---|---|
-| Morning brief | first `face_appeared` after 07:00 | summarize today's calendar (1 call), speak |
-| Meeting heads-up | event start − 10 min | speak title + time, no LLM needed for the template case |
-| Email check | every 30 min, 08:00–20:00 | unread from allowlisted senders → mention (LLM summarize subject) |
-| Nightly reset | 03:00 | clear conversation ring, prune memory, rotate logs |
-| Mood decay tick | every 5 min | TTL decay |
-
-**Budget:** max 4 *unprompted* utterances/day (meeting heads-ups exempt),
-none during quiet hours (22:30–07:00), min 20 min between any two
-unprompted utterances. Answers to the user are never budget-limited.
+Mood is carried in each manifest and eventually in voice replies. Phone-local
+signals such as proximity startle and night sleep take precedence when they
+are safety- or latency-sensitive. Calendar-driven mood and proactive speech
+are cloud decisions subject to quiet hours and a four-per-day chattiness
+budget.
 
 ---
 
-## 5. WebSocket protocol
+## 5. HTTP scene manifest protocol
 
-Single WS connection, JSON text frames, phone connects to
-`ws://<brain-host>:8300/face?token=<shared-secret>`.
+The phone polls `GET /api/manifest` over HTTPS approximately every five
+minutes. Query parameters are `lat`, `lon`, `device`, and `version`; Android
+rounds coordinates to two decimals (~1 km) before transmission.
 
-### Brain → phone
+The v1 response contains:
 
-| `type` | Payload | Effect |
-|---|---|---|
-| `say` | `{text, mood?}` | queue TTS; optional one-shot mood styling |
-| `mood` | `{mood, intensity}` | set eye styling preset |
-| `gesture` | `{name}` | one-shot: `blink`, `double_blink`, `eye_roll`, `glance_left/right`, `wink` |
-| `gaze` | `{mode: "track"\|"wander"\|"point", x?, y?}` | override gaze source |
-| `sleep` / `wake` | `{}` | force sleep state / wake up |
-| `listen` | `{}` | open mic without wake word (follow-up questions) |
-| `config` | `{key: value}` | tune calibration remotely |
+- `schemaVersion`, `manifestId`, `generatedAt`, `expiresAt`, and
+  `pollAfterSeconds`;
+- `scene.mode`, `scene.mood`, optional normalized weather, and up to four
+  declarative panels;
+- connector health states for the dashboard and diagnostics;
+- explicit privacy assertions.
 
-### Phone → brain
-
-| `type` | Payload | When |
-|---|---|---|
-| `hello` | `{device, version, battery, screen: {w,h}}` | on connect |
-| `face` | `{event: "appeared"\|"lost", prox?}` | tracking transitions (NOT continuous positions) |
-| `transcript` | `{text}` | after wake word + STT |
-| `speaking_done` | `{}` | TTS queue drained |
-| `telemetry` | `{batteryTemp, batteryPct, uptime}` | every 5 min |
-| `error` | `{where, message}` | recoverable faults |
-
-Notes: continuous gaze positions stay on-phone (bandwidth + privacy);
-the brain only needs presence transitions. Reconnect: exponential backoff
-1s→60s with jitter; phone remains fully functional offline (§2 principle 3).
-Auth: static shared token in config on both ends; LAN-only in v1 — if the
-brain moves to a VPS, switch to `wss://` behind Caddy/TLS.
+Android rejects unknown schema versions, caps panel count and string lengths,
+and treats the payload strictly as data. A failed request never changes local
+face tracking and triggers the existing direct Open-Meteo fallback. Future
+transcript and telemetry writes will use separate authenticated POST endpoints;
+they do not belong in the read-only scene manifest.
 
 ---
 
@@ -450,13 +346,16 @@ speaker legitimately.
 
 ## 7. Security & privacy
 
-- **Camera:** frames never leave the phone; ML Kit is on-device; only
-  appeared/lost events cross the LAN. No recording, no storage.
+- **Camera:** frames never leave the phone; ML Kit and MobileFaceNet are
+  on-device. No recording and no image storage.
 - **Mic:** audio processed on-device; opens only after wake word or a
   brain `listen` command; only final text transcripts are transmitted.
-- **Secrets:** all API keys/OAuth tokens on the brain host only, loaded
-  from `.env` (never committed). Phone holds just the WS token.
-- **Transport:** LAN WebSocket in v1; `wss://` + TLS if ever remote.
+- **Location:** manifest requests use coordinates rounded to two decimals
+  (~1 km); weather does not require precise location.
+- **Secrets:** API keys and OAuth tokens are Vercel environment variables and
+  managed encrypted records, never Android resources or committed files.
+- **Transport:** HTTPS only. The public weather manifest is read-only; private
+  connector data and future POST endpoints require a device bearer token.
 - **Visitor courtesy:** SLEEPING state = camera hardware off; a physical
   camera-cover sticker is a fine analog fallback.
 
@@ -476,7 +375,7 @@ battery is already a write-off.
 
 | Failure | Behavior |
 |---|---|
-| Brain unreachable | Eyes fully functional offline; voice answers "my brain is offline"; reconnect w/ backoff |
+| Brain unreachable | Eyes remain functional; direct weather fallback; next scheduled poll retries |
 | LLM 429/5xx | one retry, then canned personality response |
 | STT no-match | "Sorry, say that again?" + `listen` reopened once |
 | Google/Spotify token expired | brain logs + suppresses that feature; status page shows red; never crash-loops the phone |
@@ -486,40 +385,36 @@ battery is already a write-off.
 
 ## 10. Configuration
 
-`mawa-brain/.env`:
+`mawa-brain/.env.local` for local development, mirrored by encrypted Vercel
+environment variables in production:
 
 ```
-LLM_PROVIDER=groq            # groq | anthropic | ollama
 GROQ_API_KEY=...
 GROQ_MODEL=llama-3.3-70b-versatile
-ANTHROPIC_API_KEY=           # optional
-ANTHROPIC_MODEL=claude-opus-4-8
-WS_TOKEN=<random 32 chars>
-TIMEZONE=<local tz>
-QUIET_HOURS=22:30-07:00
-UNPROMPTED_BUDGET_PER_DAY=4
-EMAIL_SENDER_ALLOWLIST=a@x.com,b@y.com
-SPOTIFY_CLIENT_ID=... / SPOTIFY_DEVICE_NAME=Echo
-GOOGLE_* (client id/secret; token.json created by auth flow)
+MAWA_DEVICE_TOKEN=<random 32+ chars>
+TOKEN_ENCRYPTION_KEY=<32-byte encryption key>
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+SPOTIFY_CLIENT_ID=...
 ```
 
-Phone: brain host/port + WS token + calibration constants in a settings
-screen (5-tap debug overlay).
+Phone: `BuildConfig.BRAIN_BASE_URL` defaults to the production Vercel alias and
+can be overridden by `MAWA_BRAIN_URL` during build. Calibration remains in
+device `SharedPreferences` and the five-tap overlay exposes diagnostics.
 
 ## 11. Milestones & acceptance criteria
 
 | Milestone | Done when |
 |---|---|
 | M1 Face (TODO Phase 1) | Phone on wall; eyes find and follow a person across the room; blinks/saccades/wander; sleeps when room empty; survives reboot and crash unattended for 48h |
-| M2 Voice (Phase 2) | "Mawa" + question → spoken answer < 3s end-to-end on LAN; eyes choreograph listen/think/speak; offline degradation verified |
+| M2 Voice (Phase 2) | "Mawa" + question → spoken answer; eyes choreograph listen/think/speak; offline degradation verified |
 | M3 Brain (Phase 3) | Morning brief on first sighting; meeting heads-ups; ≤4 unprompted utterances/day enforced; moods visibly react to calendar events |
 | M4 Music (Phase 4) | "Play X" starts playback on the Echo via Spotify Connect; thermal policy verified over a summer week |
 
 ## 12. Open questions
 
-1. Exact Android version of the OnePlus (sets min SDK) — Phase 0.
-2. Wake word final name — "Mawa" assumed; needs a Picovoice training pass.
-3. Brain's long-term host: Mac (always on?) vs Raspberry Pi vs VPS.
-4. Groq model choice: `llama-3.3-70b-versatile` (better wit) vs
+1. Wake word final name — "Mawa" assumed; needs a Picovoice training pass.
+2. Groq model choice: `llama-3.3-70b-versatile` (better wit) vs
    8B-class (faster, higher free-tier headroom) — decide by taste in M2.
-5. Smart plug for battery care — worth $15?
+3. Recognition cosine threshold after real wall tests.
+4. Smart plug for battery care — worth $15?

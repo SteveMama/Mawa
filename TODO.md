@@ -60,6 +60,8 @@ release; the app self-updates over the air (checks every 15 min). See
 ### Face recognition — last mile (recognize Pranav specifically)
 - [x] `FaceRecognizer` embedding pipeline + enroll-on-long-press + cosine match
 - [x] CI fetches a MobileFaceNet model into assets (size-guarded, graceful)
+- [x] Five-tap overlay shows model/enrollment state, live cosine score,
+      ME/OTHER decision, and current threshold
 - [ ] **Verify on-device**: confirm the model loaded (build log said "ACTIVE"),
       long-press to enroll, check it greets only you
 - [ ] **Tune `FaceRecognizer.THRESHOLD`** against your face/lighting (start 0.62)
@@ -75,10 +77,14 @@ release; the app self-updates over the air (checks every 15 min). See
 - [ ] Mic privacy: audio leaves the phone only after the wake word
 
 ### The brain — Vercel dashboard + connectors (decided: cloud)
-- [ ] Next.js app on Vercel: dashboard + `/api/manifest` endpoint
-- [ ] Connector registry (each connector = OAuth + manifest panels + animations)
-- [ ] **Weather as connector #1** (no OAuth — proves the whole loop)
-- [ ] Phone polls the manifest and renders auto-arranged panels around the eyes
+- [x] Next.js app deployed at `mawa-brain.vercel.app`: dashboard +
+      schema-versioned `/api/manifest` + health endpoint
+- [x] Connector registry (each connector contributes state, panels, and scene cues)
+- [x] **Weather as connector #1** (no OAuth — proves the whole loop)
+- [x] Phone polls the manifest every 5 min and renders bounded, auto-positioned
+      panels around the eyes; existing local weather is the offline fallback
+- [x] Privacy boundary: only rounded (~1 km) coordinates and app metadata reach
+      the manifest endpoint; camera frames remain on-device
 - [ ] LLM personality via pluggable provider — **Groq free tier by default**
       (swap to Anthropic / local Ollama by config)
 - [ ] Encrypt OAuth tokens at rest; read-only scopes only

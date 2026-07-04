@@ -9,6 +9,25 @@ permissions:
   contents: write
 
 jobs:
+  brain-checks:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mawa-brain
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: mawa-brain/package-lock.json
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm audit --audit-level=high
+
   build:
     runs-on: ubuntu-latest
     steps:

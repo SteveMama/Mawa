@@ -6,8 +6,11 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
+import android.graphics.Typeface
 import android.util.AttributeSet
 import android.view.View
+import com.mawa.face.scene.PanelSlot
+import com.mawa.face.scene.ScenePanel
 import com.mawa.face.weather.WeatherCondition
 import kotlin.math.min
 import kotlin.math.sin
@@ -34,6 +37,7 @@ class EyeView @JvmOverloads constructor(
     /** Current sky + golden-hour warmth (0..1), driven from MainActivity. */
     var weather: WeatherCondition = WeatherCondition.CLEAR
     var warmth = 0f
+    var scenePanels: List<ScenePanel> = emptyList()
 
     private var lastFrameNs = 0L
     private var zClock = 0f
@@ -75,6 +79,14 @@ class EyeView @JvmOverloads constructor(
     private val zPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#8FA6C0")
     }
+    private val panelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#8FA6C0")
+        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
+    }
+    private val panelRulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#35404A")
+        strokeWidth = 2f
+    }
     private val eyePath = Path()
 
     private class Flake(var x: Float, var y: Float, var v: Float, var drift: Float, var r: Float)
@@ -99,6 +111,7 @@ class EyeView @JvmOverloads constructor(
         drawEye(canvas, cx + eyeGap / 2f, cy, engine.right)
 
         updateAndDrawWeather(canvas, dt)
+        drawScenePanels(canvas)
 
         if (engine.sleeping) {
             zClock += dt
@@ -108,6 +121,44 @@ class EyeView @JvmOverloads constructor(
         if (debug) drawCalibrationOverlay(canvas)
 
         postInvalidateOnAnimation()
+    }
+
+    /** Render at most four short cloud-composed cards without crowding the face. */
+    private fun drawScenePanels(canvas: Canvas) {
+        for (panel in scenePanels.take(4)) {
+            val left = panel.slot == PanelSlot.TOP_LEFT || panel.slot == PanelSlot.BOTTOM_LEFT
+            val top = panel.slot == PanelSlot.TOP_LEFT || panel.slot == PanelSlot.TOP_RIGHT
+            val anchorX = if (left) width * 0.045f else width * 0.955f
+            val anchorY = if (top) height * 0.07f else height * 0.78f
+            val align = if (left) Paint.Align.LEFT else Paint.Align.RIGHT
+            panelPaint.textAlign = align
+            panelPaint.color = try {
+                Color.parseColor(panel.accent)
+            } catch (_: IllegalArgumentException) {
+                Color.parseColor("#8FA6C0")
+            }
+
+            panelPaint.alpha = 155
+            panelPaint.textSize = height * 0.024f
+            canvas.drawText(panel.eyebrow.uppercase(), anchorX, anchorY, panelPaint)
+            panelPaint.alpha = 220
+            panelPaint.textSize = height * 0.046f
+            canvas.drawText(panel.title, anchorX, anchorY + height * 0.055f, panelPaint)
+            panelPaint.alpha = 135
+            panelPaint.textSize = height * 0.027f
+            canvas.drawText(panel.detail, anchorX, anchorY + height * 0.095f, panelPaint)
+
+            val ruleWidth = width * 0.12f
+            val ruleStart = if (left) anchorX else anchorX - ruleWidth
+            panelRulePaint.alpha = 120
+            canvas.drawLine(
+                ruleStart,
+                anchorY + height * 0.112f,
+                ruleStart + ruleWidth,
+                anchorY + height * 0.112f,
+                panelRulePaint,
+            )
+        }
     }
 
     /**

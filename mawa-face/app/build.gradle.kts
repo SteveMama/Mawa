@@ -10,6 +10,11 @@ val ciKeystorePath: String? = System.getenv("SIGNING_KEYSTORE_PATH")?.takeIf { p
     f.exists() && f.length() > 0
 }
 
+// Production points at the Vercel brain. Override for preview/local builds
+// with MAWA_BRAIN_URL; an empty value disables cloud manifests completely.
+val brainBaseUrl = System.getenv("MAWA_BRAIN_URL") ?: "https://mawa-brain.vercel.app"
+val escapedBrainBaseUrl = brainBaseUrl.trimEnd('/').replace("\\", "\\\\").replace("\"", "\\\"")
+
 android {
     namespace = "com.mawa.face"
     compileSdk = 35
@@ -23,6 +28,7 @@ android {
         // updater compares this against the published version.txt
         versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
         versionName = "0.1." + (System.getenv("GITHUB_RUN_NUMBER") ?: "dev")
+        buildConfigField("String", "BRAIN_BASE_URL", "\"$escapedBrainBaseUrl\"")
     }
 
     signingConfigs {
