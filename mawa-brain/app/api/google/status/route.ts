@@ -19,9 +19,10 @@ export async function GET(request: Request) {
     const adminAuthorized = isDashboardAuthorized(request);
     const prerequisites = googleCalendarPrerequisites();
     const storageMode = googleCalendarStorageMode();
-    const accounts = await listStoredGoogleCalendarAccounts();
+    const storageReady = googleCalendarStorageReady();
+    const accounts = storageReady ? await listStoredGoogleCalendarAccounts() : {};
     return NextResponse.json({
-      ready: prerequisites.ready && googleCalendarStorageReady(),
+      ready: prerequisites.ready && storageReady,
       adminRequired: dashboardAdminRequired(),
       adminConfigured: dashboardAdminConfigured(),
       adminAuthorized,
@@ -39,7 +40,7 @@ export async function GET(request: Request) {
             ? adminAuthorized && account.email
               ? `Connected to ${account.email}`
               : "Connected to this account's primary calendar"
-            : prerequisites.ready && googleCalendarStorageReady()
+            : prerequisites.ready && storageReady
               ? `Connect a ${slot.shortName.toLowerCase()} Google account`
               : "Google auth is not fully configured yet",
         };
