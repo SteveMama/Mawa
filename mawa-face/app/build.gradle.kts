@@ -9,8 +9,8 @@ android {
 
     defaultConfig {
         applicationId = "com.mawa.face"
-        // minSdk 24 covers any OnePlus from ~2016 onward; bump if the phone is newer
-        minSdk = 24
+        // minSdk 21 (Android 5.0) is CameraX's floor — covers every OnePlus ever made
+        minSdk = 21
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
