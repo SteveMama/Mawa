@@ -30,6 +30,26 @@ jobs:
             echo "::warning::SIGNING_KEYSTORE_B64 secret not set — APK gets a throwaway key; self-update will NOT work"
           fi
 
+      - name: Fetch face recognition model (best-effort, size-guarded)
+        run: |
+          MODEL="mawa-face/app/src/main/assets/mobilefacenet.tflite"
+          mkdir -p "$(dirname "$MODEL")"
+          curl -fsSL -o "$MODEL" \
+            "https://github.com/MCarlomagno/FaceRecognitionAuth/raw/master/assets/mobilefacenet.tflite" || true
+          if [ -f "$MODEL" ]; then
+            SIZE=$(wc -c < "$MODEL")
+            echo "face model size: $SIZE bytes"
+            # A real MobileFaceNet is ~5MB; anything tiny is a 404/LFS pointer.
+            if [ "$SIZE" -lt 1000000 ]; then
+              echo "::warning::face model download looks bad ($SIZE B) — removing so recognition stays dormant"
+              rm -f "$MODEL"
+            else
+              echo "face recognition will be ACTIVE in this build"
+            fi
+          else
+            echo "::warning::no face model fetched — recognition stays dormant"
+          fi
+
       - name: Build debug APK
         working-directory: mawa-face
         env:

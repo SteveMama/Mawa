@@ -21,3 +21,6 @@ token.json
 
 # APK signing key — NEVER commit
 .signing/
+
+# Face model is fetched by CI, not committed (5MB binary)
+mawa-face/app/src/main/assets/*.tflite
