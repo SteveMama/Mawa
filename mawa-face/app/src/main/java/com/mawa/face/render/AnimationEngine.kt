@@ -8,7 +8,7 @@ import kotlin.random.Random
 /**
  * Mood presets style HOW the eyes render; they are orthogonal to app state.
  * In Phase 1 moods are set locally (startle) or via the debug overlay;
- * in Phase 2+ the brain server drives them over WebSocket.
+ * in Phase 2+ the cloud brain can drive them through scene manifests.
  */
 enum class Mood(
     val opennessBase: Float,
@@ -60,6 +60,10 @@ class AnimationEngine {
     private var faceLastSeenAt = SystemClock.elapsedRealtime()
     private var lastProx = 0f
     private var startleUntil = 0L
+
+    // --- room audio -------------------------------------------------------
+    @Volatile private var pendingBeat = 0f
+    private var beatPulse = 0f
 
     // --- blink ------------------------------------------------------------
     private var clock = 0.0                 // seconds since engine start
@@ -117,9 +121,17 @@ class AnimationEngine {
         lastProx = 0f
     }
 
+    /** Feed a normalized transient from the on-device beat detector. */
+    fun onBeat(strength: Float) {
+        pendingBeat = maxOf(pendingBeat, strength.coerceIn(0f, 1f))
+    }
+
     fun update(dtSec: Float) {
         clock += dtSec
         val now = SystemClock.elapsedRealtime()
+        beatPulse = maxOf(beatPulse, pendingBeat)
+        pendingBeat = 0f
+        beatPulse = (beatPulse - dtSec * 3.8f).coerceAtLeast(0f)
 
         // Sleep when the room goes dark, or after 10 min without a face.
         sleeping = ambientDark || (now - faceLastSeenAt > SLEEP_AFTER_MS)
@@ -167,7 +179,8 @@ class AnimationEngine {
 
         // Startle overrides pupil size briefly
         val startled = now < startleUntil
-        var pupilTarget = if (startled) 0.7f else mood.pupilScale * (1f + 0.25f * lastProx.coerceAtMost(0.4f))
+        var pupilTarget = if (startled) 0.7f else mood.pupilScale *
+            (1f + 0.25f * lastProx.coerceAtMost(0.4f) + 0.30f * beatPulse)
         val lidTarget = if (startled) 8f else mood.lidAngle
 
         // One-shot gestures override the targets while they play
@@ -197,7 +210,8 @@ class AnimationEngine {
 
         // Burn-in drift: whole face wanders +-12 px over a ~10 min cycle
         driftX = (12.0 * sin(clock * 2.0 * Math.PI / 600.0)).toFloat()
-        driftY = (12.0 * sin(clock * 2.0 * Math.PI / 470.0 + 1.3)).toFloat()
+        driftY = (12.0 * sin(clock * 2.0 * Math.PI / 470.0 + 1.3)).toFloat() -
+            10f * beatPulse
     }
 
     private fun applyTo(eye: EyeParams, openness: Float, pupilScale: Float, lidAngle: Float, dt: Float) {

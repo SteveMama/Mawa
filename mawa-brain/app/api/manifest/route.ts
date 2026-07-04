@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { composeManifest } from "../../../lib/compose-manifest";
+import { isDeviceAuthorized } from "../../../lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,7 @@ export async function GET(request: NextRequest) {
     longitude: coordinate(request.nextUrl.searchParams.get("lon"), -71.0589, -180, 180),
     device: request.nextUrl.searchParams.get("device") ?? undefined,
     appVersion: request.nextUrl.searchParams.get("version") ?? undefined,
+    privateAccess: isDeviceAuthorized(request),
     now: new Date(),
   });
 

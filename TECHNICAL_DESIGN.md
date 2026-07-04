@@ -210,17 +210,21 @@ state renders (lid angle, blink rate, pupil size, wander speed).
 
 - `MainActivity`: immersive sticky fullscreen, `FLAG_KEEP_SCREEN_ON`,
   `setShowWhenLocked(true)` / `setTurnScreenOn(true)`.
-- `FaceService` is a **foreground service** (camera + mic type) so Android
-  never kills the pipeline while the activity is up.
+- `MainActivity` currently owns camera and microphone lifecycles. OxygenOS
+  battery mode must be Unrestricted for reliable overnight operation; a
+  foreground service remains a future hardening step.
 - `BootReceiver` on `BOOT_COMPLETED` relaunches the activity.
 - `Thread.setDefaultUncaughtExceptionHandler`: log crash to disk, schedule
   restart via `AlarmManager` (+2s), then die. The wall never shows a
   launcher.
-- Battery/thermal telemetry (`BatteryManager.EXTRA_TEMPERATURE`) sampled
-  every 5 min and reported to brain (see §8).
+- Battery/thermal telemetry (`BatteryManager.EXTRA_TEMPERATURE`) is planned
+  but not yet implemented (see §8).
 
 ### 3.7 Audio
 
+- **Beat reactivity (implemented):** an 8 kHz mono `AudioRecord` stream is
+  reduced to RMS energy. Transients drive pupil dilation and whole-face bounce;
+  samples are discarded immediately and never stored or uploaded.
 - **Wake word:** Porcupine runs continuously except in SLEEPING/SPEAKING.
   Custom keyword "Mawa" trained via Picovoice Console (free tier allows
   custom keywords for personal use).
@@ -258,6 +262,7 @@ mawa-brain/
     connectors/
       registry.ts            # active + planned connectors
       weather.ts             # Open-Meteo connector
+      google-calendar.ts     # Personal + Work private ICS feeds
 ```
 
 Each connector returns status, zero or more short panels, and optional scene
@@ -316,11 +321,14 @@ they do not belong in the read-only scene manifest.
 
 ### Google Calendar + Gmail
 
-- GCP project, OAuth consent (internal/test mode is fine for one user).
-- Scopes: `calendar.readonly`, `gmail.readonly` — read-only on principle.
-- One-time browser auth on the brain host; refresh token stored server-side
-  (`token.json`, chmod 600). The phone never sees Google credentials.
-- Calendar: `events.list(timeMin=now, timeMax=+24h, singleEvents, orderBy=startTime)`.
+- **Calendar v1 (implemented):** separate private Google ICS URLs for Personal
+  and Work. The connector expands RRULE/EXDATE/overrides for the next 24 hours
+  and emits one next-event panel per account. No write access exists.
+- Calendar event details are returned only when the paired-device bearer token
+  matches; public dashboard previews show status without titles.
+- **Calendar OAuth v2 / Gmail (planned):** Google OAuth consent and read-only
+  `calendar.readonly` / `gmail.readonly` scopes with encrypted durable token
+  storage. This replaces ICS only if interactive account management is needed.
 - Gmail: `messages.list(q="is:unread newer_than:1d from:(<allowlist>)")`,
   metadata-only fetch (From/Subject) unless summarization is requested.
 
@@ -348,16 +356,18 @@ speaker legitimately.
 
 - **Camera:** frames never leave the phone; ML Kit and MobileFaceNet are
   on-device. No recording and no image storage.
-- **Mic:** audio processed on-device; opens only after wake word or a
-  brain `listen` command; only final text transcripts are transmitted.
+- **Mic:** ambient access performs local beat-energy analysis only; raw samples
+  are immediately discarded. Future voice recognition sends final transcript
+  text only.
 - **Location:** manifest requests use coordinates rounded to two decimals
   (~1 km); weather does not require precise location.
 - **Secrets:** API keys and OAuth tokens are Vercel environment variables and
   managed encrypted records, never Android resources or committed files.
 - **Transport:** HTTPS only. The public weather manifest is read-only; private
   connector data and future POST endpoints require a device bearer token.
-- **Visitor courtesy:** SLEEPING state = camera hardware off; a physical
-  camera-cover sticker is a fine analog fallback.
+- **Visitor courtesy:** covering the camera closes the eyes; a physical
+  camera-cover sticker remains the reliable hardware privacy control. Camera
+  duty-cycling during sleep is still pending.
 
 ## 8. Performance & thermals
 
@@ -393,6 +403,9 @@ GROQ_API_KEY=...
 GROQ_MODEL=llama-3.3-70b-versatile
 MAWA_DEVICE_TOKEN=<random 32+ chars>
 TOKEN_ENCRYPTION_KEY=<32-byte encryption key>
+MAWA_TIME_ZONE=America/New_York
+PERSONAL_CALENDAR_ICS_URL=<private Google ICS URL>
+WORK_CALENDAR_ICS_URL=<private Google ICS URL>
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
 SPOTIFY_CLIENT_ID=...

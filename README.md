@@ -41,6 +41,11 @@ What works in this phase:
 - Weather connector #1: the phone polls the brain every five minutes and
   renders a cloud-composed status panel plus the matching weather animation;
   local Open-Meteo remains the offline fallback
+- Night-aware light sleep: lux can force sleep only from 10 PM through 5:59 AM
+- On-device music beat reactivity: pupils pulse and the face bounces without
+  recording, identifying, or uploading room audio
+- Private Personal and Work Google Calendar connector slots with next-event
+  panels and recurring-event support (feed URLs still need configuration)
 
 ## Face recognition
 

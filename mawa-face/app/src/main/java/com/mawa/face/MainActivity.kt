@@ -14,6 +14,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.mawa.face.audio.Speech
+import com.mawa.face.audio.BeatDetector
 import com.mawa.face.net.SceneManifestClient
 import com.mawa.face.render.EyeView
 import com.mawa.face.render.Gesture
@@ -33,10 +34,14 @@ class MainActivity : ComponentActivity() {
     private lateinit var eyeView: EyeView
     private lateinit var prefs: SharedPreferences
     private lateinit var speech: Speech
+    private var beatDetector: BeatDetector? = null
     private var tracker: FaceTracker? = null
     private var lightSensor: LightSensor? = null
     private var recognizer: FaceRecognizer? = null
-    private val manifestClient = SceneManifestClient(BuildConfig.BRAIN_BASE_URL)
+    private val manifestClient = SceneManifestClient(
+        BuildConfig.BRAIN_BASE_URL,
+        BuildConfig.DEVICE_TOKEN,
+    )
     private val handler = Handler(Looper.getMainLooper())
 
     // Face recognition (dormant until a model is bundled)
@@ -53,6 +58,7 @@ class MainActivity : ComponentActivity() {
     // Overlay status + new-person greeting
     private var camStatus = "starting..."
     private var brainStatus = "brain: starting..."
+    private var beatStatus = "beat: starting..."
     private var sceneRequestRunning = false
     private var faceLine = ""
     private var prevFaceCount = 0
@@ -74,6 +80,11 @@ class MainActivity : ComponentActivity() {
     private val permissions =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
             if (result[Manifest.permission.CAMERA] == true) startTracking()
+            if (result[Manifest.permission.RECORD_AUDIO] == true) {
+                startBeatDetection()
+            } else if (result.containsKey(Manifest.permission.RECORD_AUDIO)) {
+                beatStatus = "beat: disabled (microphone permission denied)"
+            }
             refreshScene()
         }
 
@@ -90,6 +101,9 @@ class MainActivity : ComponentActivity() {
         override fun run() {
             // Time-of-day: warm the screen at golden hour, drowsy mood at night
             eyeView.warmth = TimeOfDay.warmth()
+            // Darkness is a sleep cue only after 10 PM. Re-evaluate on the
+            // clock tick so crossing 22:00 works without a new sensor event.
+            eyeView.engine.ambientDark = TimeOfDay.isNight() && latestLux < DARK_LUX
             if (TimeOfDay.isNight()) {
                 if (eyeView.engine.mood == Mood.NEUTRAL) eyeView.engine.mood = Mood.SLEEPY
             } else if (eyeView.engine.mood == Mood.SLEEPY) {
@@ -129,8 +143,8 @@ class MainActivity : ComponentActivity() {
 
         lightSensor = LightSensor(this) { lux ->
             latestLux = lux
-            // Lights off -> sleep (with ZZZ). Sustained by the sensor itself.
-            eyeView.engine.ambientDark = lux < DARK_LUX
+            // During the day, darkness never forces sleep.
+            eyeView.engine.ambientDark = TimeOfDay.isNight() && lux < DARK_LUX
         }.also { it.start() }
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
@@ -138,8 +152,17 @@ class MainActivity : ComponentActivity() {
         ) {
             startTracking()
         }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            == PackageManager.PERMISSION_GRANTED
+        ) {
+            startBeatDetection()
+        }
         permissions.launch(
-            arrayOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_COARSE_LOCATION)
+            arrayOf(
+                Manifest.permission.CAMERA,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+                Manifest.permission.RECORD_AUDIO,
+            )
         )
 
         handler.post(updateCheck)
@@ -150,6 +173,7 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
         lightSensor?.stop()
+        beatDetector?.stop()
         speech.shutdown()
         super.onDestroy()
     }
@@ -178,6 +202,20 @@ class MainActivity : ComponentActivity() {
         WeatherClient.fetch(lat, lon) { condition, _ ->
             runOnUiThread { eyeView.weather = condition }
         }
+    }
+
+    private fun startBeatDetection() {
+        if (beatDetector != null) return
+        beatDetector = BeatDetector(
+            context = this,
+            onBeat = { strength -> eyeView.engine.onBeat(strength) },
+            onStatus = { status ->
+                runOnUiThread {
+                    beatStatus = status
+                    refreshOverlay()
+                }
+            },
+        ).also { it.start() }
     }
 
     private fun startTracking() {
@@ -245,7 +283,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refreshOverlay() {
-        eyeView.debugText = camStatus + "\n" + brainStatus + "\n" + faceLine
+        eyeView.debugText = camStatus + "\n" + brainStatus + "\n" + beatStatus + "\n" + faceLine
     }
 
     private fun recognitionSummary(): String {

@@ -60,6 +60,7 @@ export interface ManifestContext {
   longitude: number;
   device?: string;
   appVersion?: string;
+  privateAccess: boolean;
   now: Date;
 }
 

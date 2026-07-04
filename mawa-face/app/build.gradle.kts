@@ -14,6 +14,8 @@ val ciKeystorePath: String? = System.getenv("SIGNING_KEYSTORE_PATH")?.takeIf { p
 // with MAWA_BRAIN_URL; an empty value disables cloud manifests completely.
 val brainBaseUrl = System.getenv("MAWA_BRAIN_URL") ?: "https://mawa-brain.vercel.app"
 val escapedBrainBaseUrl = brainBaseUrl.trimEnd('/').replace("\\", "\\\\").replace("\"", "\\\"")
+val deviceToken = System.getenv("MAWA_DEVICE_TOKEN") ?: ""
+val escapedDeviceToken = deviceToken.replace("\\", "\\\\").replace("\"", "\\\"")
 
 android {
     namespace = "com.mawa.face"
@@ -29,6 +31,7 @@ android {
         versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
         versionName = "0.1." + (System.getenv("GITHUB_RUN_NUMBER") ?: "dev")
         buildConfigField("String", "BRAIN_BASE_URL", "\"$escapedBrainBaseUrl\"")
+        buildConfigField("String", "DEVICE_TOKEN", "\"$escapedDeviceToken\"")
     }
 
     signingConfigs {

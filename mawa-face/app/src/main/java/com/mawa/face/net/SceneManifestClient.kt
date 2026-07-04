@@ -24,7 +24,10 @@ data class SceneSnapshot(
  * Location is rounded to ~1 km before transmission. Camera data never enters
  * this client, and manifests contain no executable code.
  */
-class SceneManifestClient(private val baseUrl: String) {
+class SceneManifestClient(
+    private val baseUrl: String,
+    private val deviceToken: String = "",
+) {
 
     val enabled: Boolean get() = baseUrl.startsWith("https://") || baseUrl.startsWith("http://")
 
@@ -53,6 +56,9 @@ class SceneManifestClient(private val baseUrl: String) {
                 connection.readTimeout = READ_TIMEOUT_MS
                 connection.setRequestProperty("Accept", "application/json")
                 connection.setRequestProperty("User-Agent", "Mawa-Android/$appVersion")
+                if (deviceToken.isNotBlank()) {
+                    connection.setRequestProperty("Authorization", "Bearer $deviceToken")
+                }
 
                 if (connection.responseCode !in 200..299) {
                     throw IllegalStateException("manifest HTTP ${connection.responseCode}")

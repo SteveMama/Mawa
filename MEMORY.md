@@ -21,12 +21,22 @@ in which to extend it.
 - Weather is connector #1. Android sends coordinates rounded to two decimals
   (~1 km), receives a weather scene plus a short status panel, and falls back
   to direct Open-Meteo when the brain cannot be reached.
+- Lux-triggered sleep is gated to 22:00–05:59; darkness during the day does not
+  force sleep.
+- Room-music beat detection runs on-device at 8 kHz, discards each microphone
+  buffer after calculating RMS energy, and drives pupil pulse/face bounce.
+- Personal and Work Google Calendar ICS connectors are implemented. They need
+  `PERSONAL_CALENDAR_ICS_URL` and `WORK_CALENDAR_ICS_URL` in Vercel before they
+  become active. Recurring events are expanded for the next 24 hours.
+- A shared `MAWA_DEVICE_TOKEN` is paired through Vercel and GitHub Actions.
+  Private calendar panels require it and never appear in public previews.
 
 ## Non-negotiable boundaries
 
 - Never send or store camera frames outside the phone.
-- Do not open or upload microphone audio before the wake word. Prefer local
-  Android STT and send only final transcript text.
+- Ambient microphone access is permitted only for local beat-energy analysis;
+  discard samples immediately and never store or upload them. Future voice STT
+  should prefer on-device recognition and send only final transcript text.
 - OAuth and LLM secrets live only in Vercel environment variables.
 - Google integrations use read-only scopes. Encrypt refresh tokens at rest.
 - Every cloud feature must degrade cleanly; the eyes cannot depend on Vercel.
@@ -49,8 +59,9 @@ in which to extend it.
 4. **Authentication/storage foundation:** device bearer token, encrypted OAuth
    token store, and durable state suitable for Vercel (managed KV/Postgres, not
    local files).
-5. **Calendar connector:** dashboard connect flow, read-only events, manifest
-   panel, first-sighting morning brief, and meeting heads-up budget rules.
+5. **Calendar activation:** add both private Google ICS URLs in Vercel, verify
+   Personal/Work panels on the phone, then add first-sighting morning briefs
+   and meeting heads-up budget rules.
 6. **Gmail, then Spotify:** keep each connector independently degradable.
 7. **Thermals/battery:** phone telemetry in the manifest request or a separate
    endpoint; adapt camera cadence before adding always-listening wake word.
@@ -60,6 +71,10 @@ in which to extend it.
 - OxygenOS Settings → Battery → Mawa → **Unrestricted**.
 - After the OTA update, five-tap and confirm `brain: online` appears.
 - Long-press while centered to calibrate and enroll.
+- Grant microphone permission for local beat reactivity and test with music at
+  normal room volume.
+- Provide the private ICS URLs from Google Calendar settings for the Personal
+  and Work calendars; never paste public share links.
 - Test named greeting with Pranav and at least one other person under normal and
   dim lighting; report false accepts/rejects before changing threshold 0.62.
 

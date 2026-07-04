@@ -26,6 +26,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
+      - run: npm run smoke
       - run: npm audit --audit-level=high
 
   build:
@@ -74,6 +75,7 @@ jobs:
         env:
           SIGNING_KEYSTORE_PATH: ${{ github.workspace }}/mawa-signing.p12
           SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+          MAWA_DEVICE_TOKEN: ${{ secrets.MAWA_DEVICE_TOKEN }}
         run: ./gradlew --no-daemon assembleDebug
 
       - uses: actions/upload-artifact@v4

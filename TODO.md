@@ -44,7 +44,8 @@ release; the app self-updates over the air (checks every 15 min). See
 - [x] **Self-update pipeline**: CI builds a persistently-signed APK; in-app
       updater downloads + installs new builds over the air
 - [x] **Ambient awareness pack** (all on-device):
-  - [x] Light sensor → sleeps when the lights go off, with a floating **ZZZ**
+  - [x] Light sensor → after 10 PM only, sleeps when the lights go off, with a
+        floating **ZZZ** (daytime darkness no longer forces sleep)
   - [x] **Weather** via Open-Meteo (free, keyless) → rain / snow / fog /
         thunder-flash particle animations over the eyes
   - [x] Time-of-day spoken greeting on arrival; drowsy mood at night;
@@ -85,12 +86,17 @@ release; the app self-updates over the air (checks every 15 min). See
       panels around the eyes; existing local weather is the offline fallback
 - [x] Privacy boundary: only rounded (~1 km) coordinates and app metadata reach
       the manifest endpoint; camera frames remain on-device
+- [x] Paired-device bearer token stored in Vercel + GitHub Actions secrets;
+      private connector panels are withheld from public dashboard previews
 - [ ] LLM personality via pluggable provider — **Groq free tier by default**
       (swap to Anthropic / local Ollama by config)
 - [ ] Encrypt OAuth tokens at rest; read-only scopes only
 
 ### Phase 3 — Useful connectors
-- [ ] Google Calendar (read-only): morning brief, meeting heads-up 10 min prior
+- [x] Dual Google Calendar feed connector: separate Personal and Work slots,
+      recurring-event expansion, next-event panels, private-device-only output
+- [ ] Add the Personal and Work private ICS URLs to Vercel to activate the feeds
+- [ ] Calendar morning brief and meeting heads-up 10 min prior
 - [ ] Gmail (read-only): important-email mentions (sender allowlist)
 - [ ] Chattiness budget: ≤ ~4 unprompted utterances/day, quiet hours
 - [ ] Mood state machine perturbed by real events:
@@ -103,8 +109,8 @@ release; the app self-updates over the air (checks every 15 min). See
 
 ### Phase 4 — Music & polish
 - [ ] Spotify Connect: "play some jazz" → plays on the Echo / any linked device
-- [ ] Music reactivity: beat-detect room audio on-device → eyes pulse to the
-      beat (song ID via a paid API is optional on top)
+- [x] Music reactivity: on-device RMS beat detection → pupil pulse + whole-face
+      bounce; raw microphone samples are discarded and never uploaded
 - [ ] Eyes react to Spotify "now playing" (track/album art via the API)
 - [ ] Heat check: log battery temperature; drop camera fps / duty-cycle if hot
 - [ ] Battery care: hold charge ~40–80% (smart plug the brain toggles?)

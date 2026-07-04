@@ -1,15 +1,14 @@
 import type { ConnectorState, ManifestConnector } from "../manifest";
 import { weatherConnector } from "./weather";
+import { personalCalendarConnector, workCalendarConnector } from "./google-calendar";
 
-export const activeConnectors: ManifestConnector[] = [weatherConnector];
+export const activeConnectors: ManifestConnector[] = [
+  weatherConnector,
+  personalCalendarConnector,
+  workCalendarConnector,
+];
 
 export const plannedConnectors: ConnectorState[] = [
-  {
-    id: "calendar",
-    name: "Google Calendar",
-    status: "planned",
-    message: "Read-only morning briefs and meeting heads-ups",
-  },
   {
     id: "gmail",
     name: "Gmail",
