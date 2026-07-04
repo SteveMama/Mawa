@@ -1,5 +1,7 @@
 package com.mawa.face.vision
 
+import android.content.SharedPreferences
+
 /**
  * Maps a normalized face center (0..1 in the rotated camera frame) to a gaze
  * target (-1..1) for the pupils.
@@ -8,9 +10,11 @@ package com.mawa.face.vision
  *  - mirrorX: the front camera is mirrored relative to the world; without
  *    this the eyes look away from you instead of at you.
  *  - offsetX/offsetY: in landscape the camera sits at one short edge of the
- *    phone, not between the eyes, so the raw center is skewed. Tune these
- *    once the phone is on the wall by standing dead-center and adjusting
- *    until the eyes look straight at you (debug overlay: 5-tap the screen).
+ *    phone, not between the eyes, so the raw center is skewed.
+ *
+ * Calibration is one-touch and on-device: stand where you normally are and
+ * long-press the screen — [calibrateTo] solves the offsets so the current
+ * face position maps to dead-center gaze, and persists them.
  */
 object GazeMapper {
     var mirrorX = true
@@ -20,12 +24,32 @@ object GazeMapper {
     var offsetY = 0f
 
     fun map(cx: Float, cy: Float): Pair<Float, Float> {
-        var x = (cx - 0.5f) * 2f
-        if (mirrorX) x = -x
-        val y = (cy - 0.5f) * 2f
         return Pair(
-            (x * gainX + offsetX).coerceIn(-1f, 1f),
-            (y * gainY + offsetY).coerceIn(-1f, 1f),
+            (norm(cx, mirrorX) * gainX + offsetX).coerceIn(-1f, 1f),
+            (norm(cy, false) * gainY + offsetY).coerceIn(-1f, 1f),
         )
     }
+
+    /** Make the current raw face position map to gaze (0, 0), and persist. */
+    fun calibrateTo(rawX: Float, rawY: Float, prefs: SharedPreferences) {
+        offsetX = -norm(rawX, mirrorX) * gainX
+        offsetY = -norm(rawY, false) * gainY
+        prefs.edit()
+            .putFloat(KEY_OFFSET_X, offsetX)
+            .putFloat(KEY_OFFSET_Y, offsetY)
+            .apply()
+    }
+
+    fun load(prefs: SharedPreferences) {
+        offsetX = prefs.getFloat(KEY_OFFSET_X, 0f)
+        offsetY = prefs.getFloat(KEY_OFFSET_Y, 0f)
+    }
+
+    private fun norm(v: Float, mirror: Boolean): Float {
+        val n = (v - 0.5f) * 2f
+        return if (mirror) -n else n
+    }
+
+    private const val KEY_OFFSET_X = "gaze_offset_x"
+    private const val KEY_OFFSET_Y = "gaze_offset_y"
 }

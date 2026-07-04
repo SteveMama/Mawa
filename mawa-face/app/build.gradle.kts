@@ -3,6 +3,11 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// CI signs with a persistent key (GitHub secrets) so installed builds can
+// self-update in place. Local/keyless builds fall back to the default debug key.
+val ciKeystorePath: String? = System.getenv("SIGNING_KEYSTORE_PATH")
+    ?.takeIf { java.io.File(it).let { f -> f.exists() && f.length() > 0 } }
+
 android {
     namespace = "com.mawa.face"
     compileSdk = 35
@@ -12,14 +17,37 @@ android {
         // minSdk 21 (Android 5.0) is CameraX's floor — covers every OnePlus ever made
         minSdk = 21
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        // CI run number = monotonically increasing version; the on-device
+        // updater compares this against the published version.txt
+        versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+        versionName = "0.1." + (System.getenv("GITHUB_RUN_NUMBER") ?: "dev")
+    }
+
+    signingConfigs {
+        if (ciKeystorePath != null) {
+            create("ci") {
+                storeFile = file(ciKeystorePath)
+                storeType = "PKCS12"
+                storePassword = System.getenv("SIGNING_PASSWORD")
+                keyAlias = "mawa"
+                keyPassword = System.getenv("SIGNING_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
+        debug {
+            if (ciKeystorePath != null) {
+                signingConfig = signingConfigs.getByName("ci")
+            }
+        }
         release {
             isMinifyEnabled = false
         }
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     compileOptions {

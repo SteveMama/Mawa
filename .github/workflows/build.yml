@@ -19,8 +19,22 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Decode signing keystore
+        env:
+          SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$SIGNING_KEYSTORE_B64" ]; then
+            echo "$SIGNING_KEYSTORE_B64" | base64 -d > "$GITHUB_WORKSPACE/mawa-signing.p12"
+            echo "Signing keystore decoded"
+          else
+            echo "::warning::SIGNING_KEYSTORE_B64 secret not set — APK gets a throwaway key; self-update will NOT work"
+          fi
+
       - name: Build debug APK
         working-directory: mawa-face
+        env:
+          SIGNING_KEYSTORE_PATH: ${{ github.workspace }}/mawa-signing.p12
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
         run: ./gradlew --no-daemon assembleDebug
 
       - uses: actions/upload-artifact@v4
@@ -28,13 +42,14 @@ jobs:
           name: mawa-face-debug
           path: mawa-face/app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Attach APK to rolling "latest" release
+      - name: Attach APK + version to rolling "latest" release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp mawa-face/app/build/outputs/apk/debug/app-debug.apk mawa-face.apk
+          echo "${{ github.run_number }}" > version.txt
           gh release view latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
             gh release create latest --repo "$GITHUB_REPOSITORY" --prerelease \
               --title "Latest debug build" \
               --notes "Rolling debug APK — download this on the phone and sideload."
-          gh release upload latest mawa-face.apk --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload latest mawa-face.apk version.txt --repo "$GITHUB_REPOSITORY" --clobber
