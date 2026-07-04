@@ -47,6 +47,10 @@ button:hover { border-color: #687068; }
 .card > p:not(.eyebrow) { color: var(--muted); }
 .phone-preview { position: relative; margin-top: 36px; aspect-ratio: 1.9; border: 1px solid #252925; background: #000; border-radius: 18px; }
 .preview-panel { position: absolute; right: 18px; top: 18px; padding: 10px 12px; border: 1px solid #303630; border-radius: 8px; display: grid; gap: 2px; color: var(--blue); }
+.preview-panel.top-left { left: 18px; top: 18px; right: auto; }
+.preview-panel.top-right { right: 18px; top: 18px; }
+.preview-panel.bottom-left { left: 18px; bottom: 18px; right: auto; top: auto; }
+.preview-panel.bottom-right { right: 18px; bottom: 18px; top: auto; }
 .preview-panel small { font-size: 8px; letter-spacing: .12em; }
 .preview-panel strong { font-size: 15px; }
 .preview-panel span { color: var(--muted); font-size: 10px; }
@@ -59,6 +63,17 @@ button:hover { border-color: #687068; }
 .connector div { display: grid; gap: 6px; }
 .connector small { color: var(--muted); line-height: 1.4; }
 .connector em { color: #626862; font-size: 10px; font-style: normal; text-transform: uppercase; }
+.calendar-auth { margin-top: 30px; padding-top: 26px; border-top: 1px solid var(--line); }
+.auth-copy, .auth-warning { color: var(--muted); line-height: 1.6; }
+.auth-list { display: grid; gap: 12px; margin-top: 18px; }
+.auth-slot { display: grid; grid-template-columns: 1fr auto; gap: 14px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.02); }
+.auth-unlock { grid-template-columns: 1fr; }
+.auth-slot div { display: grid; gap: 4px; }
+.auth-slot small { color: var(--muted); line-height: 1.5; }
+.auth-actions { display: flex; align-items: center; }
+.unlock-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.unlock-controls input { min-width: 220px; border: 1px solid #343834; background: #151815; color: var(--ink); border-radius: 8px; padding: 10px 12px; font: inherit; }
+.auth-actions button[disabled] { cursor: default; opacity: .55; }
 
 footer { display: flex; justify-content: space-between; color: #5f655f; font-size: 11px; padding: 22px 2px; }
 

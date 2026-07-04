@@ -44,8 +44,8 @@ What works in this phase:
 - Night-aware light sleep: lux can force sleep only from 10 PM through 5:59 AM
 - On-device music beat reactivity: pupils pulse and the face bounces without
   recording, identifying, or uploading room audio
-- Private Personal and Work Google Calendar connector slots with next-event
-  panels and recurring-event support (feed URLs still need configuration)
+- OAuth-backed Personal and Work Google Calendar slots with encrypted refresh
+  tokens, dashboard connect buttons, and private next-event panels
 
 ## Face recognition
 

@@ -256,13 +256,14 @@ mawa-brain/
     page.tsx                 # connector/status dashboard
     api/health/route.ts      # liveness
     api/manifest/route.ts    # phone scene endpoint
+    api/google/*             # dashboard auth/connect/disconnect routes
   lib/
     manifest.ts              # shared v1 schema
     compose-manifest.ts      # fan-out + bounded composition
     connectors/
       registry.ts            # active + planned connectors
       weather.ts             # Open-Meteo connector
-      google-calendar.ts     # Personal + Work private ICS feeds
+      google-calendar.ts     # Personal + Work OAuth-backed connectors
 ```
 
 Each connector returns status, zero or more short panels, and optional scene
@@ -279,7 +280,9 @@ response so the phone never waits indefinitely.
 
 Vercel functions have no durable local filesystem. Conversation memory,
 chattiness budgets, encrypted OAuth refresh tokens, and scheduled connector
-state must use managed durable storage (KV/Postgres) rather than files.
+state must use managed durable storage. Mawa uses encrypted state records in a
+private Vercel Blob store in production and a local file only for development
+and CI smoke tests.
 
 The personality remains dry, warm, slightly theatrical, and brief: one or two
 spoken sentences, no invented calendar/email facts, and no emoji in TTS text.
@@ -321,14 +324,16 @@ they do not belong in the read-only scene manifest.
 
 ### Google Calendar + Gmail
 
-- **Calendar v1 (implemented):** separate private Google ICS URLs for Personal
-  and Work. The connector expands RRULE/EXDATE/overrides for the next 24 hours
-  and emits one next-event panel per account. No write access exists.
-- Calendar event details are returned only when the paired-device bearer token
-  matches; public dashboard previews show status without titles.
-- **Calendar OAuth v2 / Gmail (planned):** Google OAuth consent and read-only
-  `calendar.readonly` / `gmail.readonly` scopes with encrypted durable token
-  storage. This replaces ICS only if interactive account management is needed.
+- **Calendar v1 (implemented):** the dashboard exposes separate Personal and
+  Work "Connect Google Account" actions. Each slot runs a Google OAuth web
+  flow, stores the resulting refresh token encrypted at rest, refreshes
+  server-side, and reads only that account's primary calendar with
+  `calendar.readonly`.
+- Event details are returned only when the paired-device bearer token or the
+  signed dashboard-admin cookie matches; public dashboard previews show status
+  without titles.
+- **Gmail (planned):** extend the same Google OAuth foundation with
+  `gmail.readonly` and metadata-first fetches.
 - Gmail: `messages.list(q="is:unread newer_than:1d from:(<allowlist>)")`,
   metadata-only fetch (From/Subject) unless summarization is requested.
 
@@ -402,12 +407,13 @@ environment variables in production:
 GROQ_API_KEY=...
 GROQ_MODEL=llama-3.3-70b-versatile
 MAWA_DEVICE_TOKEN=<random 32+ chars>
-TOKEN_ENCRYPTION_KEY=<32-byte encryption key>
+MAWA_SIGNING_SECRET=<random 32+ chars>
+MAWA_STATE_ENCRYPTION_SECRET=<random 32+ chars>
+MAWA_DASHBOARD_ADMIN_TOKEN=<random 32+ chars>
 MAWA_TIME_ZONE=America/New_York
-PERSONAL_CALENDAR_ICS_URL=<private Google ICS URL>
-WORK_CALENDAR_ICS_URL=<private Google ICS URL>
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
+BLOB_READ_WRITE_TOKEN=<private Vercel Blob read/write token>
 SPOTIFY_CLIENT_ID=...
 ```
 

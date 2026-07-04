@@ -25,9 +25,10 @@ in which to extend it.
   force sleep.
 - Room-music beat detection runs on-device at 8 kHz, discards each microphone
   buffer after calculating RMS energy, and drives pupil pulse/face bounce.
-- Personal and Work Google Calendar ICS connectors are implemented. They need
-  `PERSONAL_CALENDAR_ICS_URL` and `WORK_CALENDAR_ICS_URL` in Vercel before they
-  become active. Recurring events are expanded for the next 24 hours.
+- Personal and Work Google Calendar connectors now use Google OAuth instead of
+  ICS feeds. The dashboard can connect one Google account per slot, stores
+  refresh tokens encrypted at rest, and reads each account's primary calendar
+  for the next 24 hours.
 - A shared `MAWA_DEVICE_TOKEN` is paired through Vercel and GitHub Actions.
   Private calendar panels require it and never appear in public previews.
 
@@ -56,12 +57,14 @@ in which to extend it.
    `SpeechRecognizer`, transcript POST endpoint, pluggable Groq provider, and
    reply through existing Android TTS. Wake word comes immediately after this
    push-to-talk/debug path proves the loop.
-4. **Authentication/storage foundation:** device bearer token, encrypted OAuth
-   token store, and durable state suitable for Vercel (managed KV/Postgres, not
-   local files).
-5. **Calendar activation:** add both private Google ICS URLs in Vercel, verify
-   Personal/Work panels on the phone, then add first-sighting morning briefs
-   and meeting heads-up budget rules.
+4. **Calendar activation:** create Google OAuth web credentials, add the
+   production secrets (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+   `MAWA_SIGNING_SECRET`, `MAWA_STATE_ENCRYPTION_SECRET`,
+   `MAWA_DASHBOARD_ADMIN_TOKEN`, `BLOB_READ_WRITE_TOKEN`), then connect the
+   Personal and Work accounts from the dashboard and verify panels on the
+   phone.
+5. **Calendar behaviors:** morning brief on first sighting and meeting heads-up
+   budget rules.
 6. **Gmail, then Spotify:** keep each connector independently degradable.
 7. **Thermals/battery:** phone telemetry in the manifest request or a separate
    endpoint; adapt camera cadence before adding always-listening wake word.
@@ -73,8 +76,9 @@ in which to extend it.
 - Long-press while centered to calibrate and enroll.
 - Grant microphone permission for local beat reactivity and test with music at
   normal room volume.
-- Provide the private ICS URLs from Google Calendar settings for the Personal
-  and Work calendars; never paste public share links.
+- Create a Google OAuth web client with callback URLs for local dev and
+  `https://mawa-brain.vercel.app/api/google/callback`, then set the production
+  env vars listed above before connecting the Personal and Work accounts.
 - Test named greeting with Pranav and at least one other person under normal and
   dim lighting; report false accepts/rejects before changing threshold 0.62.
 

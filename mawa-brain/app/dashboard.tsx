@@ -5,10 +5,33 @@ import type { SceneManifest } from "../lib/manifest";
 
 const DEFAULT_LOCATION = { latitude: 42.3601, longitude: -71.0589 };
 
+interface GoogleSlotStatus {
+  slot: "personal" | "work";
+  name: string;
+  connected: boolean;
+  email?: string;
+  connectedAt?: string;
+  message: string;
+}
+
+interface GoogleStatusResponse {
+  ready: boolean;
+  missing: string[];
+  storageMode: "blob" | "file" | "unavailable";
+  adminRequired: boolean;
+  adminConfigured: boolean;
+  adminAuthorized: boolean;
+  slots: GoogleSlotStatus[];
+}
+
 export function Dashboard() {
   const [manifest, setManifest] = useState<SceneManifest | null>(null);
+  const [googleStatus, setGoogleStatus] = useState<GoogleStatusResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authBusy, setAuthBusy] = useState<string | null>(null);
+  const [adminToken, setAdminToken] = useState("");
+  const [flash, setFlash] = useState<string | null>(null);
 
   const load = useCallback(async (location = DEFAULT_LOCATION) => {
     setLoading(true);
@@ -29,9 +52,29 @@ export function Dashboard() {
     }
   }, []);
 
+  const loadGoogleStatus = useCallback(async () => {
+    const response = await fetch("/api/google/status", { cache: "no-store" });
+    if (!response.ok) throw new Error(`Google status returned ${response.status}`);
+    setGoogleStatus((await response.json()) as GoogleStatusResponse);
+  }, []);
+
   useEffect(() => {
     load();
-  }, [load]);
+    loadGoogleStatus().catch((cause) => {
+      setError(cause instanceof Error ? cause.message : "Could not load Google auth status");
+    });
+  }, [load, loadGoogleStatus]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("google") === "connected") {
+      setFlash(`${params.get("slot") === "work" ? "Work" : "Personal"} calendar connected`);
+      return;
+    }
+    if (params.get("google_error")) {
+      setFlash(`Google auth error: ${params.get("google_error")}`);
+    }
+  }, []);
 
   function useMyLocation() {
     if (!navigator.geolocation) return;
@@ -40,6 +83,39 @@ export function Dashboard() {
       () => setError("Location permission was not granted; showing the default location."),
       { maximumAge: 10 * 60_000, timeout: 8_000 },
     );
+  }
+
+  async function disconnect(slot: "personal" | "work") {
+    setAuthBusy(slot);
+    try {
+      const response = await fetch(`/api/google/disconnect?slot=${slot}`, {
+        method: "POST",
+      });
+      if (!response.ok) throw new Error(`Disconnect returned ${response.status}`);
+      await Promise.all([load(), loadGoogleStatus()]);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not disconnect Google Calendar");
+    } finally {
+      setAuthBusy(null);
+    }
+  }
+
+  async function unlockAdmin() {
+    setAuthBusy("admin");
+    try {
+      const response = await fetch("/api/google/unlock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: adminToken }),
+      });
+      if (!response.ok) throw new Error("Admin token was rejected");
+      setAdminToken("");
+      await Promise.all([load(), loadGoogleStatus()]);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not unlock calendar admin");
+    } finally {
+      setAuthBusy(null);
+    }
   }
 
   return (
@@ -61,7 +137,7 @@ export function Dashboard() {
       <section className="toolbar">
         <div>
           <span className={`dot ${error ? "bad" : ""}`} />
-          {loading ? "Composing scene…" : error ?? "Manifest online"}
+          {loading ? "Composing scene…" : error ?? flash ?? "Manifest online"}
         </div>
         <div className="actions">
           <button onClick={useMyLocation}>Use my location</button>
@@ -80,7 +156,7 @@ export function Dashboard() {
           </p>
           <div className="phone-preview">
             {manifest?.scene.panels.map((panel) => (
-              <div className="preview-panel" key={panel.id}>
+              <div className={`preview-panel ${panel.slot}`} key={panel.id}>
                 <small>{panel.eyebrow}</small>
                 <strong>{panel.title}</strong>
                 <span>{panel.detail}</span>
@@ -100,6 +176,68 @@ export function Dashboard() {
                 <em>{connector.status}</em>
               </div>
             ))}
+          </div>
+          <div className="calendar-auth">
+            <p className="eyebrow">GOOGLE CALENDAR</p>
+            <p className="auth-copy">
+              Connect two separate Google accounts. Each slot syncs that account&apos;s primary
+              calendar and stays private unless this dashboard or the wall device is authorized.
+            </p>
+            <div className="auth-list">
+              {googleStatus?.adminRequired && !googleStatus.adminAuthorized ? (
+                <div className="auth-slot auth-unlock">
+                  <div>
+                    <strong>Unlock Calendar Admin</strong>
+                    <small>
+                      Enter `MAWA_DASHBOARD_ADMIN_TOKEN` to connect or replace the Personal and Work
+                      Google accounts.
+                    </small>
+                  </div>
+                  <div className="unlock-controls">
+                    <input
+                      type="password"
+                      value={adminToken}
+                      onChange={(event) => setAdminToken(event.target.value)}
+                      placeholder="Admin token"
+                    />
+                    <button onClick={unlockAdmin} disabled={authBusy === "admin" || !adminToken.trim()}>
+                      {authBusy === "admin" ? "Unlocking…" : "Unlock"}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {googleStatus?.slots.map((slot) => (
+                <div className="auth-slot" key={slot.slot}>
+                  <div>
+                    <strong>{slot.name}</strong>
+                    <small>{slot.message}</small>
+                  </div>
+                  <div className="auth-actions">
+                    {slot.connected ? (
+                      <button
+                        onClick={() => disconnect(slot.slot)}
+                        disabled={authBusy === slot.slot || !googleStatus.adminAuthorized}
+                      >
+                        {authBusy === slot.slot ? "Disconnecting…" : "Disconnect"}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => window.location.assign(`/api/google/connect?slot=${slot.slot}`)}
+                        disabled={!googleStatus.ready || !googleStatus.adminAuthorized}
+                      >
+                        Connect Google Account
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {!googleStatus?.ready ? (
+              <p className="auth-warning">
+                Missing: {googleStatus?.missing.join(", ") || "Google OAuth configuration"}
+                {" · "}Storage: {googleStatus?.storageMode ?? "unknown"}
+              </p>
+            ) : null}
           </div>
         </article>
       </section>

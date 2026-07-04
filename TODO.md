@@ -90,12 +90,16 @@ release; the app self-updates over the air (checks every 15 min). See
       private connector panels are withheld from public dashboard previews
 - [ ] LLM personality via pluggable provider — **Groq free tier by default**
       (swap to Anthropic / local Ollama by config)
-- [ ] Encrypt OAuth tokens at rest; read-only scopes only
+- [x] Encrypt OAuth tokens at rest; read-only scopes only
 
 ### Phase 3 — Useful connectors
-- [x] Dual Google Calendar feed connector: separate Personal and Work slots,
-      recurring-event expansion, next-event panels, private-device-only output
-- [ ] Add the Personal and Work private ICS URLs to Vercel to activate the feeds
+- [x] Dual Google Calendar OAuth connector: separate Personal and Work account
+      slots, encrypted refresh tokens, dashboard connect/disconnect controls,
+      next-event panels, private-device-only output
+- [ ] Create Google OAuth web credentials and add prod envs:
+      `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `MAWA_SIGNING_SECRET`,
+      `MAWA_STATE_ENCRYPTION_SECRET`, `MAWA_DASHBOARD_ADMIN_TOKEN`, and a
+      private `BLOB_READ_WRITE_TOKEN`
 - [ ] Calendar morning brief and meeting heads-up 10 min prior
 - [ ] Gmail (read-only): important-email mentions (sender allowlist)
 - [ ] Chattiness budget: ≤ ~4 unprompted utterances/day, quiet hours
