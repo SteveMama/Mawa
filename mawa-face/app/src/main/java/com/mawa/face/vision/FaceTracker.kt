@@ -19,30 +19,29 @@ import java.util.concurrent.Executors
 
 /**
  * Front-camera face detection, fully on-device (ML Kit bundled model).
- * Frames are throttled to ~5 fps to keep the old phone cool — humans don't
- * teleport, and the renderer smooths between observations anyway.
+ * Frames are throttled to ~5 fps to keep the old phone cool.
  *
- * The analysis target rotation is refreshed on every frame from the current
- * display rotation, so the phone can be wall-mounted in either landscape
- * direction (ML Kit cannot detect upside-down faces — a stale rotation
- * silently kills detection).
+ * The analysis rotation is refreshed every frame from the display rotation so
+ * the phone works wall-mounted in either landscape direction (ML Kit can't
+ * detect upside-down faces — a stale rotation silently kills detection).
  *
- * Emits normalized face-center coordinates + proximity + total face count,
- * plus a status line for the on-screen calibration overlay. No frame ever
- * leaves this class.
+ * Emits: normalized face center + proximity + face count + average eye-open
+ * probability (for blink-back), plus per-frame luminance (for camera-cover
+ * "do not disturb"). No frame ever leaves this class.
  */
 class FaceTracker(
     private val context: Context,
     private val lifecycleOwner: LifecycleOwner,
-    private val onFace: (cx: Float, cy: Float, prox: Float, faceCount: Int) -> Unit,
+    private val onFace: (cx: Float, cy: Float, prox: Float, faceCount: Int, eyeOpen: Float) -> Unit,
     private val onLost: () -> Unit,
     private val onStatus: (String) -> Unit,
+    private val onLuma: (Float) -> Unit,
 ) {
     private val detector = FaceDetection.getClient(
         FaceDetectorOptions.Builder()
             .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
-            // Small: a face across the room is only a few percent of the frame
-            .setMinFaceSize(0.05f)
+            .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL) // eye-open probs
+            .setMinFaceSize(0.05f)  // a face across the room is small in-frame
             .build()
     )
     private val analysisExecutor = Executors.newSingleThreadExecutor()
@@ -84,6 +83,22 @@ class FaceTracker(
         return wm.defaultDisplay.rotation
     }
 
+    /** Mean luminance (0..255) from a subsample of the Y plane. */
+    private fun lumaOf(image: android.media.Image): Float {
+        val y = image.planes[0].buffer
+        var sum = 0L
+        var count = 0
+        var i = 0
+        val cap = y.capacity()
+        val step = 1024
+        while (i < cap) {
+            sum += (y.get(i).toInt() and 0xFF)
+            count++
+            i += step
+        }
+        return if (count > 0) sum.toFloat() / count else 0f
+    }
+
     @SuppressLint("UnsafeOptInUsageError")
     private fun analyze(proxy: ImageProxy) {
         val now = SystemClock.elapsedRealtime()
@@ -93,7 +108,6 @@ class FaceTracker(
         }
         lastProcessedAt = now
 
-        // Follow the physical mount orientation, even if it flips
         analysis?.targetRotation = displayRotation()
 
         val mediaImage = proxy.image
@@ -101,10 +115,11 @@ class FaceTracker(
             proxy.close()
             return
         }
+
+        onLuma(lumaOf(mediaImage))
+
         val rotation = proxy.imageInfo.rotationDegrees
         val input = InputImage.fromMediaImage(mediaImage, rotation)
-
-        // After ML Kit applies the rotation, width/height swap for 90/270.
         val frameW = if (rotation % 180 == 0) proxy.width else proxy.height
         val frameH = if (rotation % 180 == 0) proxy.height else proxy.width
 
@@ -121,8 +136,11 @@ class FaceTracker(
                     val b = face.boundingBox
                     val cx = b.exactCenterX() / frameW
                     val cy = b.exactCenterY() / frameH
-                    val prox = (b.width().toFloat() * b.height().toFloat()) / (frameW.toFloat() * frameH.toFloat())
-                    onFace(cx, cy, prox, faces.size)
+                    val prox = (b.width().toFloat() * b.height().toFloat()) /
+                        (frameW.toFloat() * frameH.toFloat())
+                    val le = face.leftEyeOpenProbability ?: 1f
+                    val re = face.rightEyeOpenProbability ?: 1f
+                    onFace(cx, cy, prox, faces.size, (le + re) / 2f)
                 } else if (!lostReported && now - lastSeenAt > LOST_AFTER_MS) {
                     lostReported = true
                     onLost()

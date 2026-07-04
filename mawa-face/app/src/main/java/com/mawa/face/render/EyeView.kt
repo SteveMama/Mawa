@@ -8,7 +8,10 @@ import android.graphics.Path
 import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
+import com.mawa.face.weather.WeatherCondition
 import kotlin.math.min
+import kotlin.math.sin
+import kotlin.random.Random
 
 /**
  * Fullscreen eye renderer. Pure black background (OLED pixels off), two
@@ -28,7 +31,13 @@ class EyeView @JvmOverloads constructor(
     /** Raw face position (0..1 in camera frame), for the calibration overlay. */
     var rawFace: Pair<Float, Float>? = null
 
+    /** Current sky + golden-hour warmth (0..1), driven from MainActivity. */
+    var weather: WeatherCondition = WeatherCondition.CLEAR
+    var warmth = 0f
+
     private var lastFrameNs = 0L
+    private var zClock = 0f
+    private var flashClock = 0f
 
     private val scleraPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#F5F2EA")   // warm off-white
@@ -54,7 +63,23 @@ class EyeView @JvmOverloads constructor(
         color = Color.parseColor("#E24B4A")
         style = Paint.Style.FILL
     }
+    private val rainPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(150, 120, 170, 210); strokeWidth = 3f
+    }
+    private val snowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(205, 235, 240, 255); style = Paint.Style.FILL
+    }
+    private val fogPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(26, 180, 185, 195); style = Paint.Style.FILL
+    }
+    private val zPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#8FA6C0")
+    }
     private val eyePath = Path()
+
+    private class Flake(var x: Float, var y: Float, var v: Float, var drift: Float, var r: Float)
+    private val flakes = ArrayList<Flake>()
+    private var flakeKind: WeatherCondition? = null
 
     override fun onDraw(canvas: Canvas) {
         val now = System.nanoTime()
@@ -63,7 +88,8 @@ class EyeView @JvmOverloads constructor(
 
         engine.update(dt)
 
-        canvas.drawColor(Color.BLACK)
+        // Warm the black very slightly near golden hour (still OLED-dark)
+        canvas.drawColor(Color.rgb((warmth * 20f).toInt(), (warmth * 9f).toInt(), 0))
 
         val cx = width / 2f + engine.driftX
         val cy = height / 2f + engine.driftY
@@ -71,6 +97,13 @@ class EyeView @JvmOverloads constructor(
 
         drawEye(canvas, cx - eyeGap / 2f, cy, engine.left)
         drawEye(canvas, cx + eyeGap / 2f, cy, engine.right)
+
+        updateAndDrawWeather(canvas, dt)
+
+        if (engine.sleeping) {
+            zClock += dt
+            drawZzz(canvas, cx + eyeGap / 2f + width * 0.06f, cy - height * 0.16f)
+        }
 
         if (debug) drawCalibrationOverlay(canvas)
 
@@ -99,6 +132,87 @@ class EyeView @JvmOverloads constructor(
         debugText.split("\n").reversed().forEach { line ->
             canvas.drawText(line, 24f, y, debugPaint)
             y -= 42f
+        }
+    }
+
+    private fun rebuildParticles(kind: WeatherCondition) {
+        flakes.clear()
+        val n = when (kind) {
+            WeatherCondition.RAIN, WeatherCondition.THUNDER -> 90
+            WeatherCondition.SNOW -> 70
+            WeatherCondition.FOG -> 12
+            else -> 0
+        }
+        val w = if (width > 0) width.toFloat() else 1920f
+        val h = if (height > 0) height.toFloat() else 1080f
+        repeat(n) {
+            flakes.add(
+                Flake(
+                    x = Random.nextFloat() * w,
+                    y = Random.nextFloat() * h,
+                    v = when (kind) {
+                        WeatherCondition.RAIN, WeatherCondition.THUNDER -> h * (0.9f + Random.nextFloat() * 0.6f)
+                        WeatherCondition.SNOW -> h * (0.06f + Random.nextFloat() * 0.06f)
+                        else -> h * 0.02f
+                    },
+                    drift = (Random.nextFloat() - 0.5f) * w * 0.05f,
+                    r = when (kind) {
+                        WeatherCondition.SNOW -> 3f + Random.nextFloat() * 4f
+                        WeatherCondition.FOG -> w * (0.15f + Random.nextFloat() * 0.2f)
+                        else -> 0f
+                    },
+                )
+            )
+        }
+    }
+
+    private fun updateAndDrawWeather(canvas: Canvas, dt: Float) {
+        val kind = weather
+        if (kind != flakeKind) {
+            rebuildParticles(kind)
+            flakeKind = kind
+        }
+        when (kind) {
+            WeatherCondition.RAIN, WeatherCondition.THUNDER -> {
+                for (f in flakes) {
+                    f.y += f.v * dt
+                    f.x += f.drift * dt
+                    if (f.y > height) { f.y = -20f; f.x = Random.nextFloat() * width }
+                    canvas.drawLine(f.x, f.y, f.x + f.drift * 0.04f, f.y + 22f, rainPaint)
+                }
+                if (kind == WeatherCondition.THUNDER) {
+                    flashClock -= dt
+                    if (flashClock <= 0f && Random.nextFloat() < 0.004f) flashClock = 0.12f
+                    if (flashClock > 0f) canvas.drawColor(Color.argb(55, 200, 210, 235))
+                }
+            }
+            WeatherCondition.SNOW -> {
+                for (f in flakes) {
+                    f.y += f.v * dt
+                    f.x += f.drift * dt + sin(f.y / 60f) * 6f * dt
+                    if (f.y > height) { f.y = -10f; f.x = Random.nextFloat() * width }
+                    canvas.drawCircle(f.x, f.y, f.r, snowPaint)
+                }
+            }
+            WeatherCondition.FOG -> {
+                for (f in flakes) {
+                    f.x += f.drift * dt
+                    if (f.x > width + f.r) f.x = -f.r
+                    canvas.drawCircle(f.x, f.y, f.r, fogPaint)
+                }
+            }
+            else -> {}
+        }
+    }
+
+    private fun drawZzz(canvas: Canvas, baseX: Float, baseY: Float) {
+        for (i in 0..2) {
+            val phase = (zClock * 0.35f + i * 0.33f) % 1f
+            val y = baseY - phase * (height * 0.14f)
+            val x = baseX + sin(phase * Math.PI).toFloat() * 24f
+            zPaint.alpha = ((1f - phase) * 200f).toInt().coerceIn(0, 200)
+            zPaint.textSize = 40f + i * 14f
+            canvas.drawText("z", x, y, zPaint)
         }
     }
 

@@ -26,7 +26,7 @@ enum class Mood(
 }
 
 /** One-shot scripted animations layered on top of the current state. */
-enum class Gesture { LOCK_ON }
+enum class Gesture { LOCK_ON, BLINK }
 
 /** Per-eye animatable parameters. Everything is eased — nothing ever snaps. */
 class EyeParams {
@@ -81,6 +81,10 @@ class AnimationEngine {
     private var gesture: Gesture? = null
     private var gestureStart = 0.0
 
+    // --- ambient inputs (driven from MainActivity) -------------------------
+    var ambientDark = false   // light sensor says the lights are off -> sleep
+    var covered = false       // camera lens covered -> polite eyes-closed (no ZZZ)
+
     // --- burn-in drift -----------------------------------------------------
     var driftX = 0f
         private set
@@ -117,8 +121,8 @@ class AnimationEngine {
         clock += dtSec
         val now = SystemClock.elapsedRealtime()
 
-        // Sleep after 10 min without a face; onFace() wakes us.
-        sleeping = now - faceLastSeenAt > SLEEP_AFTER_MS
+        // Sleep when the room goes dark, or after 10 min without a face.
+        sleeping = ambientDark || (now - faceLastSeenAt > SLEEP_AFTER_MS)
 
         // Idle wander when nobody is around (and awake)
         if (!hasFace && !sleeping && clock >= nextWanderAt) {
@@ -167,17 +171,26 @@ class AnimationEngine {
         val lidTarget = if (startled) 8f else mood.lidAngle
 
         // One-shot gestures override the targets while they play
-        if (gesture == Gesture.LOCK_ON) {
-            val p = (clock - gestureStart).toFloat()
-            when {
-                p < 0.30f -> pupilTarget = 0.55f                       // narrow: focusing...
-                p < 0.44f -> { opennessTarget = 0f }                   // snap blink
-                p < 0.58f -> { opennessTarget = 1f; pupilTarget = 0.55f }
-                p < 0.72f -> { opennessTarget = 0f }                   // second blink
-                p < 1.80f -> pupilTarget = 1.45f                       // wide dilate: found you
-                else -> gesture = null
+        when (gesture) {
+            Gesture.LOCK_ON -> {
+                val p = (clock - gestureStart).toFloat()
+                when {
+                    p < 0.30f -> pupilTarget = 0.55f                   // narrow: focusing...
+                    p < 0.44f -> opennessTarget = 0f                   // snap blink
+                    p < 0.58f -> { opennessTarget = 1f; pupilTarget = 0.55f }
+                    p < 0.72f -> opennessTarget = 0f                   // second blink
+                    p < 1.80f -> pupilTarget = 1.45f                   // wide dilate: found you
+                    else -> gesture = null
+                }
             }
+            Gesture.BLINK -> {
+                if (clock - gestureStart < 0.16) opennessTarget = 0f else gesture = null
+            }
+            null -> {}
         }
+
+        // Hand over the lens -> close politely. Distinct from sleep: no ZZZ.
+        if (covered && !sleeping) opennessTarget = 0f
 
         applyTo(left, opennessTarget, pupilTarget, lidTarget, dtSec)
         applyTo(right, opennessTarget, pupilTarget, -lidTarget, dtSec)  // mirrored tilt
