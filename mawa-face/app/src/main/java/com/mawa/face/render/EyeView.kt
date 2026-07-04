@@ -95,7 +95,11 @@ class EyeView @JvmOverloads constructor(
         }
 
         canvas.drawText("CALIBRATE: stand at your spot, LONG-PRESS. 5-tap to exit.", 24f, 48f, debugPaint)
-        canvas.drawText(debugText, 24f, height - 32f, debugPaint)
+        var y = height - 32f
+        debugText.split("\n").reversed().forEach { line ->
+            canvas.drawText(line, 24f, y, debugPaint)
+            y -= 42f
+        }
     }
 
     private fun drawEye(canvas: Canvas, ex: Float, ey: Float, p: EyeParams) {

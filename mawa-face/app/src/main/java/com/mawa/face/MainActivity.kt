@@ -34,6 +34,12 @@ class MainActivity : ComponentActivity() {
     private var lastRawY = 0.5f
     private var lastFaceAtMs = 0L
 
+    // Overlay status lines + new-person greeting state
+    private var camStatus = "starting..."
+    private var faceLine = ""
+    private var prevFaceCount = 0
+    private var newPersonMutedUntil = 0L
+
     // 5 taps within 2 s toggles the debug/calibration overlay
     private var tapCount = 0
     private var firstTapAt = 0L
@@ -93,26 +99,49 @@ class MainActivity : ComponentActivity() {
         tracker = FaceTracker(
             context = this,
             lifecycleOwner = this,
-            onFace = { cx, cy, prox ->
+            onFace = { cx, cy, prox, count ->
                 lastRawX = cx
                 lastRawY = cy
                 lastFaceAtMs = SystemClock.elapsedRealtime()
                 eyeView.rawFace = Pair(cx, cy)
                 val (gx, gy) = GazeMapper.map(cx, cy)
                 eyeView.engine.onFace(gx, gy, prox)
-                eyeView.debugText = String.format(
+                greetNewPerson(count)
+                faceLine = String.format(
                     Locale.US,
-                    "raw %.2f,%.2f  gaze %.2f,%.2f  prox %.3f  off %.2f,%.2f  v%d",
+                    "raw %.2f,%.2f  gaze %.2f,%.2f  prox %.3f  off %.2f,%.2f  faces %d  v%d",
                     cx, cy, gx, gy, prox,
                     GazeMapper.offsetX, GazeMapper.offsetY,
-                    BuildConfig.VERSION_CODE,
+                    count, BuildConfig.VERSION_CODE,
                 )
+                refreshOverlay()
             },
             onLost = {
                 eyeView.rawFace = null
                 eyeView.engine.onFaceLost()
+                prevFaceCount = 0
+                faceLine = "no face in view"
+                refreshOverlay()
+            },
+            onStatus = { status ->
+                camStatus = status
+                runOnUiThread { refreshOverlay() }
             },
         ).also { it.start() }
+    }
+
+    private fun refreshOverlay() {
+        eyeView.debugText = camStatus + "\n" + faceLine
+    }
+
+    /** A second face joins the first -> "Hey! New person!" (60 s cooldown). */
+    private fun greetNewPerson(count: Int) {
+        val now = SystemClock.elapsedRealtime()
+        if (count > prevFaceCount && count >= 2 && now > newPersonMutedUntil) {
+            newPersonMutedUntil = now + 60_000
+            speech.say("Hey! New person!")
+        }
+        prevFaceCount = count
     }
 
     /**
