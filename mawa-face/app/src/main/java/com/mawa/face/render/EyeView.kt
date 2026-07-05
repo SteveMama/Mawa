@@ -42,6 +42,8 @@ class EyeView @JvmOverloads constructor(
     private var lastFrameNs = 0L
     private var zClock = 0f
     private var flashClock = 0f
+    private var musicPhase = 0f
+    private var glyphSpawnAccumulator = 0f
 
     private val scleraPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#F5F2EA")   // warm off-white
@@ -87,10 +89,38 @@ class EyeView @JvmOverloads constructor(
         color = Color.parseColor("#35404A")
         strokeWidth = 2f
     }
+    private val auraPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
+    private val barPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.parseColor("#5B83A6")
+    }
+    private val musicPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#91C4E8")
+        textAlign = Paint.Align.CENTER
+        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+    }
+    private val focusPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+        color = Color.parseColor("#7FBF7F")
+    }
     private val eyePath = Path()
 
     private class Flake(var x: Float, var y: Float, var v: Float, var drift: Float, var r: Float)
+    private class MusicGlyph(
+        var x: Float,
+        var y: Float,
+        var vx: Float,
+        var vy: Float,
+        var age: Float,
+        var ttl: Float,
+        val glyph: String,
+        val size: Float,
+    )
     private val flakes = ArrayList<Flake>()
+    private val glyphs = ArrayList<MusicGlyph>()
     private var flakeKind: WeatherCondition? = null
 
     override fun onDraw(canvas: Canvas) {
@@ -107,10 +137,13 @@ class EyeView @JvmOverloads constructor(
         val cy = height / 2f + engine.driftY
         val eyeGap = width * 0.28f
 
+        drawMusicBackdrop(canvas, cx, cy, eyeGap, dt)
         drawEye(canvas, cx - eyeGap / 2f, cy, engine.left)
         drawEye(canvas, cx + eyeGap / 2f, cy, engine.right)
+        drawFocusFrame(canvas, cx, cy, eyeGap)
 
         updateAndDrawWeather(canvas, dt)
+        updateAndDrawMusicGlyphs(canvas, cx, cy, dt)
         drawScenePanels(canvas)
 
         if (engine.sleeping) {
@@ -121,6 +154,119 @@ class EyeView @JvmOverloads constructor(
         if (debug) drawCalibrationOverlay(canvas)
 
         postInvalidateOnAnimation()
+    }
+
+    private fun drawMusicBackdrop(canvas: Canvas, cx: Float, cy: Float, eyeGap: Float, dt: Float) {
+        val vibe = engine.musicLevel()
+        val beat = engine.beatLevel()
+        if (vibe <= 0.01f && !engine.identityLockEnabled) return
+
+        val pulseAlpha = (30 + 80 * vibe + 110 * beat).toInt().coerceIn(0, 180)
+        auraPaint.color = Color.argb(pulseAlpha, 75, 116, 165)
+        val radius = width * (0.13f + 0.05f * vibe)
+        canvas.drawCircle(cx - eyeGap / 2f, cy, radius, auraPaint)
+        canvas.drawCircle(cx + eyeGap / 2f, cy, radius, auraPaint)
+
+        auraPaint.color = Color.argb((18 + 32 * vibe).toInt().coerceIn(0, 70), 120, 200, 255)
+        canvas.drawCircle(cx, cy, width * (0.12f + 0.04f * vibe), auraPaint)
+
+        val barCount = 9
+        val barWidth = width * 0.012f
+        val gap = width * 0.009f
+        val totalWidth = barCount * barWidth + (barCount - 1) * gap
+        val baseX = cx - totalWidth / 2f
+        val baseY = height * 0.91f
+        for (index in 0 until barCount) {
+            val phase = musicPhase * 3.7f + index * 0.55f
+            val heightFactor = (0.22f + 0.78f * vibe) *
+                (0.35f + 0.65f * (0.5f + 0.5f * sin(phase)))
+            val barHeight = height * 0.08f * heightFactor
+            barPaint.alpha = (40 + 150 * vibe + 40 * beat).toInt().coerceIn(0, 220)
+            val left = baseX + index * (barWidth + gap)
+            canvas.drawRoundRect(
+                left,
+                baseY - barHeight,
+                left + barWidth,
+                baseY,
+                barWidth / 2,
+                barWidth / 2,
+                barPaint,
+            )
+        }
+
+        musicPhase += dt
+    }
+
+    private fun drawFocusFrame(canvas: Canvas, cx: Float, cy: Float, eyeGap: Float) {
+        if (!engine.identityLockEnabled || engine.sleeping) return
+        focusPaint.alpha = if (engine.musicLevel() > 0.08f) 170 else 110
+        val bracketY = cy - height * 0.17f
+        val bracketHeight = height * 0.34f
+        val leftX = cx - eyeGap / 2f - width * 0.12f
+        val rightX = cx + eyeGap / 2f + width * 0.12f
+        val span = width * 0.028f
+        canvas.drawLine(leftX, bracketY, leftX, bracketY + bracketHeight, focusPaint)
+        canvas.drawLine(leftX, bracketY, leftX + span, bracketY, focusPaint)
+        canvas.drawLine(leftX, bracketY + bracketHeight, leftX + span, bracketY + bracketHeight, focusPaint)
+        canvas.drawLine(rightX, bracketY, rightX, bracketY + bracketHeight, focusPaint)
+        canvas.drawLine(rightX - span, bracketY, rightX, bracketY, focusPaint)
+        canvas.drawLine(rightX - span, bracketY + bracketHeight, rightX, bracketY + bracketHeight, focusPaint)
+    }
+
+    private fun updateAndDrawMusicGlyphs(canvas: Canvas, cx: Float, cy: Float, dt: Float) {
+        val vibe = engine.musicLevel()
+        if (vibe > 0.12f) {
+            val spawnRate = 1.6f + vibe * 7f + engine.beatLevel() * 6f
+            glyphSpawnAccumulator += dt * spawnRate
+            while (glyphSpawnAccumulator >= 1f) {
+                glyphSpawnAccumulator -= 1f
+                spawnGlyph(cx, cy, vibe)
+            }
+        } else {
+            glyphSpawnAccumulator = 0f
+        }
+
+        val iterator = glyphs.iterator()
+        while (iterator.hasNext()) {
+            val glyph = iterator.next()
+            glyph.age += dt
+            glyph.x += glyph.vx * dt
+            glyph.y += glyph.vy * dt
+            if (glyph.age >= glyph.ttl) {
+                iterator.remove()
+                continue
+            }
+            val alpha = ((1f - glyph.age / glyph.ttl) * 220f).toInt().coerceIn(0, 220)
+            musicPaint.alpha = alpha
+            musicPaint.textSize = glyph.size
+            canvas.drawText(glyph.glyph, glyph.x, glyph.y, musicPaint)
+        }
+    }
+
+    private fun spawnGlyph(cx: Float, cy: Float, vibe: Float) {
+        if (glyphs.size > 18) return
+        val side = if (Random.nextBoolean()) -1f else 1f
+        val startX = cx + side * width * (0.13f + Random.nextFloat() * 0.18f)
+        val startY = cy + height * (Random.nextFloat() * 0.24f - 0.12f)
+        val glyph = when (Random.nextInt(5)) {
+            0 -> "♪"
+            1 -> "♫"
+            2 -> "~"
+            3 -> "<3"
+            else -> ":)"
+        }
+        glyphs.add(
+            MusicGlyph(
+                x = startX,
+                y = startY,
+                vx = side * width * (0.008f + Random.nextFloat() * 0.02f),
+                vy = -height * (0.03f + Random.nextFloat() * 0.06f),
+                age = 0f,
+                ttl = 1.2f + Random.nextFloat() * 1.4f,
+                glyph = glyph,
+                size = height * (0.038f + vibe * 0.03f + Random.nextFloat() * 0.018f),
+            )
+        )
     }
 
     /** Render at most four short cloud-composed cards without crowding the face. */

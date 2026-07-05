@@ -24,11 +24,19 @@ in which to extend it.
 - Lux-triggered sleep is gated to 22:00–05:59; darkness during the day does not
   force sleep.
 - Room-music beat detection runs on-device at 8 kHz, discards each microphone
-  buffer after calculating RMS energy, and drives pupil pulse/face bounce.
+  buffer after calculating RMS energy, and now drives pupil pulse, whole-face
+  bounce, a pulsing background aura, equalizer bars, floating music glyphs, and
+  faster expressive blinking.
+- Face enrollment now implies an identity-lock mode. Double-tap toggles between
+  locked-to-Pranav behavior and a relaxed ambient mode; the lock state is
+  persisted on-device.
 - Personal and Work Google Calendar connectors now use Google OAuth instead of
   ICS feeds. The dashboard can connect one Google account per slot, stores
   refresh tokens encrypted at rest, and reads each account's primary calendar
   for the next 24 hours.
+- Groq personality is now implemented in the brain. If `GROQ_API_KEY` is set,
+  the manifest can emit a private ambient thought panel and cloud-driven mood,
+  and the dashboard exposes a protected chat tester using the same prompt.
 - A shared `MAWA_DEVICE_TOKEN` is paired through Vercel and GitHub Actions.
   Private calendar panels require it and never appear in public previews.
 
@@ -65,8 +73,10 @@ in which to extend it.
    phone.
 5. **Calendar behaviors:** morning brief on first sighting and meeting heads-up
    budget rules.
-6. **Gmail, then Spotify:** keep each connector independently degradable.
-7. **Thermals/battery:** phone telemetry in the manifest request or a separate
+6. **Voice loop:** Android STT -> Groq reply -> TTS, reusing the new companion
+   prompt and keeping transcripts text-only.
+7. **Gmail, then Spotify:** keep each connector independently degradable.
+8. **Thermals/battery:** phone telemetry in the manifest request or a separate
    endpoint; adapt camera cadence before adding always-listening wake word.
 
 ## User-required wall actions

@@ -68,6 +68,9 @@ class MainActivity : ComponentActivity() {
     private var latestLux = 100f
     private var awaySinceMs = SystemClock.elapsedRealtime()
     private var greetedThisVisit = false
+    private var identityLockEnabled = false
+    private var identityAcquireUntilMs = 0L
+    private var lastRecognizedMeAtMs = 0L
 
     // Blink-back edge detection
     private var prevEyeOpen = 1f
@@ -76,6 +79,7 @@ class MainActivity : ComponentActivity() {
     // 5 taps within 2 s toggles the calibration overlay
     private var tapCount = 0
     private var firstTapAt = 0L
+    private var lastTapAt = 0L
 
     private val permissions =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
@@ -128,6 +132,7 @@ class MainActivity : ComponentActivity() {
         speech = Speech(this)
         recognizer = FaceRecognizer(this)
         enrolledEmbedding = loadEmbedding()
+        identityLockEnabled = prefs.getBoolean("identity_lock_enabled", enrolledEmbedding != null)
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         if (Build.VERSION.SDK_INT >= 27) {
@@ -137,6 +142,7 @@ class MainActivity : ComponentActivity() {
         enterImmersiveMode()
 
         eyeView = EyeView(this)
+        eyeView.engine.identityLockEnabled = identityLockEnabled
         eyeView.setOnClickListener { onScreenTap() }
         eyeView.setOnLongClickListener { onCalibrateLongPress() }
         setContentView(eyeView)
@@ -188,8 +194,10 @@ class MainActivity : ComponentActivity() {
                 result.onSuccess { snapshot ->
                     snapshot.weather?.let { eyeView.weather = it }
                     eyeView.scenePanels = snapshot.panels
+                    eyeView.engine.cloudMood = snapshot.mood
                     brainStatus = "brain: online  ${snapshot.manifestId}"
                 }.onFailure { error ->
+                    eyeView.engine.cloudMood = null
                     brainStatus = "brain: offline (${error.message ?: "unavailable"})"
                     refreshLocalWeather(lat, lon)
                 }
@@ -224,20 +232,29 @@ class MainActivity : ComponentActivity() {
             context = this,
             lifecycleOwner = this,
             onFace = { cx, cy, prox, count, eyeOpen ->
+                val now = SystemClock.elapsedRealtime()
                 lastRawX = cx
                 lastRawY = cy
-                lastFaceAtMs = SystemClock.elapsedRealtime()
+                lastFaceAtMs = now
                 eyeView.rawFace = Pair(cx, cy)
                 val (gx, gy) = GazeMapper.map(cx, cy)
-                eyeView.engine.onFace(gx, gy, prox)
-                greetOnArrival()
+                if (count > prevFaceCount && count > 0 && identityLockActive()) {
+                    identityAcquireUntilMs = now + IDENTITY_ACQUIRE_MS
+                }
+                val following = shouldFollowCurrentFace(now)
+                if (following) {
+                    eyeView.engine.onFace(gx, gy, prox)
+                    greetOnArrival()
+                } else {
+                    eyeView.engine.onIgnoredFace(prox)
+                }
                 greetNewPerson(count)
                 blinkBack(eyeOpen)
                 faceLine = String.format(
                     Locale.US,
-                    "raw %.2f,%.2f  gaze %.2f,%.2f  prox %.3f  lux %.0f  faces %d  v%d%s",
-                    cx, cy, gx, gy, prox, latestLux, count, BuildConfig.VERSION_CODE,
-                    recognitionSummary(),
+                    "raw %.2f,%.2f  gaze %.2f,%.2f  prox %.3f  lux %.0f  faces %d  v%d%s  %s",
+                    cx, cy, gx, gy, prox, latestLux, count, BuildConfig.VERSION_CODE, recognitionSummary(),
+                    lockSummary(following, now),
                 )
                 refreshOverlay()
             },
@@ -264,6 +281,7 @@ class MainActivity : ComponentActivity() {
                 val enrolled = enrolledEmbedding
                 recognitionScore = enrolled?.let { FaceRecognizer.cosine(emb, it) }
                 recognizedIsMe = recognitionScore?.let { it > FaceRecognizer.THRESHOLD } == true
+                if (recognizedIsMe) lastRecognizedMeAtMs = SystemClock.elapsedRealtime()
             },
         ).also {
             it.recognitionEnabled = recognizer?.enabled == true
@@ -307,7 +325,7 @@ class MainActivity : ComponentActivity() {
      */
     private fun greetOnArrival() {
         if (greetedThisVisit || eyeView.engine.ambientDark) return
-        val recognitionActive = recognizer?.enabled == true && enrolledEmbedding != null
+        val recognitionActive = identityLockActive()
         if (recognitionActive && !recognizedIsMe) return  // a face, but not you — wait
         val now = SystemClock.elapsedRealtime()
         greetedThisVisit = true
@@ -318,6 +336,10 @@ class MainActivity : ComponentActivity() {
 
     /** A second face joins -> "Hey! New person!" (60 s cooldown). */
     private fun greetNewPerson(count: Int) {
+        if (identityLockActive() && !recognizedIsMe) {
+            prevFaceCount = count
+            return
+        }
         val now = SystemClock.elapsedRealtime()
         if (count > prevFaceCount && count >= 2 && now > newPersonMutedUntil) {
             newPersonMutedUntil = now + 60_000
@@ -352,6 +374,10 @@ class MainActivity : ComponentActivity() {
         lastEmbedding?.let {
             saveEmbedding(it)
             recognizedIsMe = true
+            lastRecognizedMeAtMs = SystemClock.elapsedRealtime()
+            identityLockEnabled = true
+            prefs.edit().putBoolean("identity_lock_enabled", true).apply()
+            eyeView.engine.identityLockEnabled = true
         }
         eyeView.engine.play(Gesture.LOCK_ON)
         handler.postDelayed({ speech.say("Found you, Pranav.") }, 700)
@@ -360,6 +386,13 @@ class MainActivity : ComponentActivity() {
 
     private fun onScreenTap() {
         val now = SystemClock.elapsedRealtime()
+        if (now - lastTapAt <= DOUBLE_TAP_MS) {
+            lastTapAt = 0L
+            tapCount = 0
+            toggleIdentityLock()
+            return
+        }
+        lastTapAt = now
         if (now - firstTapAt > 2000) {
             firstTapAt = now
             tapCount = 0
@@ -387,11 +420,53 @@ class MainActivity : ComponentActivity() {
         if (hasFocus) enterImmersiveMode()
     }
 
+    private fun identityLockActive(): Boolean =
+        identityLockEnabled && recognizer?.enabled == true && enrolledEmbedding != null
+
+    private fun shouldFollowCurrentFace(now: Long): Boolean {
+        if (!identityLockActive()) return true
+        if (recognizedIsMe) {
+            lastRecognizedMeAtMs = now
+            return true
+        }
+        if (now - lastRecognizedMeAtMs <= IDENTITY_HOLD_MS) return true
+        return now <= identityAcquireUntilMs
+    }
+
+    private fun lockSummary(following: Boolean, now: Long): String = when {
+        !identityLockEnabled -> "lock:relaxed"
+        !identityLockActive() -> "lock:needs-enroll"
+        recognizedIsMe -> "lock:me"
+        now <= identityAcquireUntilMs -> "lock:checking"
+        following -> "lock:holding"
+        else -> "lock:ignoring"
+    }
+
+    private fun toggleIdentityLock() {
+        if (enrolledEmbedding == null || recognizer?.enabled != true) {
+            speech.say("Enroll your face first.")
+            return
+        }
+        identityLockEnabled = !identityLockEnabled
+        eyeView.engine.identityLockEnabled = identityLockEnabled
+        prefs.edit().putBoolean("identity_lock_enabled", identityLockEnabled).apply()
+        if (identityLockEnabled) {
+            identityAcquireUntilMs = SystemClock.elapsedRealtime() + IDENTITY_ACQUIRE_MS
+            speech.say("Locked on you.")
+        } else {
+            speech.say("Relaxing now.")
+        }
+        refreshOverlay()
+    }
+
     companion object {
         private const val UPDATE_CHECK_MS = 15 * 60 * 1000L
         private const val SCENE_CHECK_MS = 5 * 60 * 1000L
         private const val GREET_GAP_MS = 30 * 60 * 1000L
         private const val DARK_LUX = 6f
         private const val COVERED_LUMA = 12f
+        private const val DOUBLE_TAP_MS = 320L
+        private const val IDENTITY_ACQUIRE_MS = 2_500L
+        private const val IDENTITY_HOLD_MS = 4_000L
     }
 }

@@ -270,13 +270,14 @@ Each connector returns status, zero or more short panels, and optional scene
 cues such as weather or mood. The composer runs connectors concurrently,
 flattens their output, and sets explicit generation/expiry times.
 
-### 4.3 Future LLM and state
+### 4.3 LLM and state
 
-The conversational endpoint will depend on an `LLMProvider` TypeScript
-interface. Groq is the default; Anthropic remains an optional provider. Local
-Ollama is not a Vercel production provider, but can remain a development
-adapter. Rate-limit handling is one bounded retry followed by a short canned
-response so the phone never waits indefinitely.
+Groq is now the default personality engine via its OpenAI-compatible chat
+completions API. The brain owns one shared system prompt for two surfaces:
+private ambient thought panels in the manifest and a protected dashboard chat
+tester. Anthropic or local Ollama can still be added later behind the same
+abstraction. Rate-limit handling remains one bounded retry followed by a short
+canned response so the phone never waits indefinitely.
 
 Vercel functions have no durable local filesystem. Conversation memory,
 chattiness budgets, encrypted OAuth refresh tokens, and scheduled connector

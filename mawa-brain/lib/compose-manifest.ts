@@ -10,7 +10,10 @@ export async function composeManifest(context: ManifestContext): Promise<SceneMa
   const generatedAt = context.now.toISOString();
   const expiresAt = new Date(context.now.getTime() + 5 * 60_000).toISOString();
   const weather = outputs.find((output) => output.weather)?.weather;
-  const mood = outputs.find((output) => output.suggestedMood)?.suggestedMood ?? "neutral";
+  const mood = outputs
+    .map((output) => output.suggestedMood)
+    .filter((value): value is NonNullable<typeof value> => !!value)
+    .at(-1) ?? "neutral";
 
   return {
     schemaVersion: MANIFEST_SCHEMA_VERSION,

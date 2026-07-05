@@ -1,6 +1,7 @@
 package com.mawa.face.net
 
 import android.util.Log
+import com.mawa.face.render.Mood
 import com.mawa.face.scene.PanelSlot
 import com.mawa.face.scene.ScenePanel
 import com.mawa.face.weather.WeatherCondition
@@ -11,6 +12,7 @@ import java.util.Locale
 
 data class SceneSnapshot(
     val manifestId: String,
+    val mood: Mood?,
     val weather: WeatherCondition?,
     val panels: List<ScenePanel>,
     val pollAfterSeconds: Int,
@@ -79,6 +81,7 @@ class SceneManifestClient(
             "unsupported manifest schema"
         }
         val scene = root.getJSONObject("scene")
+        val mood = scene.optString("mood", "neutral").let(::moodOf)
         val weather = scene.optJSONObject("weather")
             ?.optString("condition")
             ?.let(::weatherCondition)
@@ -102,6 +105,7 @@ class SceneManifestClient(
         }
         return SceneSnapshot(
             manifestId = root.optString("manifestId", "unknown").take(80),
+            mood = mood,
             weather = weather,
             panels = panels,
             pollAfterSeconds = root.optInt("pollAfterSeconds", 300).coerceIn(60, 1800),
@@ -123,6 +127,15 @@ class SceneManifestClient(
         "bottom-left" -> PanelSlot.BOTTOM_LEFT
         "bottom-right" -> PanelSlot.BOTTOM_RIGHT
         else -> PanelSlot.TOP_RIGHT
+    }
+
+    private fun moodOf(value: String): Mood? = when (value.lowercase()) {
+        "happy" -> Mood.HAPPY
+        "grumpy" -> Mood.GRUMPY
+        "sleepy" -> Mood.SLEEPY
+        "suspicious" -> Mood.SUSPICIOUS
+        "excited" -> Mood.EXCITED
+        else -> Mood.NEUTRAL
     }
 
     companion object {

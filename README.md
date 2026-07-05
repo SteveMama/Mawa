@@ -44,8 +44,14 @@ What works in this phase:
 - Night-aware light sleep: lux can force sleep only from 10 PM through 5:59 AM
 - On-device music beat reactivity: pupils pulse and the face bounces without
   recording, identifying, or uploading room audio
+- Stronger music visuals: pulsing aura, equalizer floor, floating music glyphs,
+  tempo-biased blinks, and an excited vibe state
+- Identity lock: once your face is enrolled, double-tap toggles between
+  "locked on you" and a relaxed ambient mode
 - OAuth-backed Personal and Work Google Calendar slots with encrypted refresh
   tokens, dashboard connect buttons, and private next-event panels
+- Groq-backed companion personality: ambient thought panels in the manifest and
+  a protected dashboard chat tester using the same wall-companion prompt
 
 ## Face recognition
 

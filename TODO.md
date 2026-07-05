@@ -88,8 +88,8 @@ release; the app self-updates over the air (checks every 15 min). See
       the manifest endpoint; camera frames remain on-device
 - [x] Paired-device bearer token stored in Vercel + GitHub Actions secrets;
       private connector panels are withheld from public dashboard previews
-- [ ] LLM personality via pluggable provider — **Groq free tier by default**
-      (swap to Anthropic / local Ollama by config)
+- [x] LLM personality via pluggable provider — **Groq free tier by default**
+      (dashboard tester + manifest thought panel now live; voice loop still pending)
 - [x] Encrypt OAuth tokens at rest; read-only scopes only
 
 ### Phase 3 — Useful connectors
@@ -115,6 +115,10 @@ release; the app self-updates over the air (checks every 15 min). See
 - [ ] Spotify Connect: "play some jazz" → plays on the Echo / any linked device
 - [x] Music reactivity: on-device RMS beat detection → pupil pulse + whole-face
       bounce; raw microphone samples are discarded and never uploaded
+- [x] Bigger music vibe pass: pulsing aura, equalizer floor, floating notes /
+      emoticons, tempo-biased blinks, excited expression state
+- [x] Identity lock toggle: face enrollment defaults to "you"; double-tap
+      relaxes back to ambient mode
 - [ ] Eyes react to Spotify "now playing" (track/album art via the API)
 - [ ] Heat check: log battery temperature; drop camera fps / duty-cycle if hot
 - [ ] Battery care: hold charge ~40–80% (smart plug the brain toggles?)

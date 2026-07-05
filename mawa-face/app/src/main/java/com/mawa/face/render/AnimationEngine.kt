@@ -49,6 +49,8 @@ class AnimationEngine {
     val right = EyeParams()
 
     var mood: Mood = Mood.NEUTRAL
+    var cloudMood: Mood? = null
+    var identityLockEnabled = false
 
     // --- gaze -------------------------------------------------------------
     private var gazeX = 0f
@@ -64,6 +66,8 @@ class AnimationEngine {
     // --- room audio -------------------------------------------------------
     @Volatile private var pendingBeat = 0f
     private var beatPulse = 0f
+    private var grooveLevel = 0f
+    private var intruderUntil = 0L
 
     // --- blink ------------------------------------------------------------
     private var clock = 0.0                 // seconds since engine start
@@ -121,20 +125,33 @@ class AnimationEngine {
         lastProx = 0f
     }
 
+    fun onIgnoredFace(prox: Float) {
+        hasFace = false
+        lastProx = prox
+        intruderUntil = SystemClock.elapsedRealtime() + 1_200L
+    }
+
     /** Feed a normalized transient from the on-device beat detector. */
     fun onBeat(strength: Float) {
         pendingBeat = maxOf(pendingBeat, strength.coerceIn(0f, 1f))
     }
+
+    fun musicLevel(): Float = grooveLevel
+
+    fun beatLevel(): Float = beatPulse
 
     fun update(dtSec: Float) {
         clock += dtSec
         val now = SystemClock.elapsedRealtime()
         beatPulse = maxOf(beatPulse, pendingBeat)
         pendingBeat = 0f
-        beatPulse = (beatPulse - dtSec * 3.8f).coerceAtLeast(0f)
+        beatPulse = (beatPulse - dtSec * 4.6f).coerceAtLeast(0f)
+        grooveLevel = maxOf(grooveLevel, beatPulse * 0.92f)
+        grooveLevel = (grooveLevel - dtSec * 0.68f).coerceAtLeast(0f)
 
         // Sleep when the room goes dark, or after 10 min without a face.
         sleeping = ambientDark || (now - faceLastSeenAt > SLEEP_AFTER_MS)
+        val styleMood = activeMood(now)
 
         // Idle wander when nobody is around (and awake)
         if (!hasFace && !sleeping && clock >= nextWanderAt) {
@@ -160,7 +177,8 @@ class AnimationEngine {
             blinkStart = clock
             val doubleBlink = Random.nextFloat() < 0.1f
             nextBlinkAt = if (doubleBlink) clock + blinkDur + 0.18
-            else clock + (2.2 + Random.nextDouble() * 3.3) / mood.blinkRateMul
+            else clock + (2.0 + Random.nextDouble() * 2.8) /
+                (styleMood.blinkRateMul * (1f + grooveLevel * 1.4f))
         }
         var blinkFactor = 1f
         if (blinkStart >= 0) {
@@ -174,14 +192,16 @@ class AnimationEngine {
         var opennessTarget = if (sleeping) {
             0.06f + 0.03f * sin(clock * 2.0 * Math.PI / 4.5).toFloat()
         } else {
-            mood.opennessBase * blinkFactor
+            styleMood.opennessBase * blinkFactor
         }
+        opennessTarget = (opennessTarget + grooveLevel * 0.09f * (0.5f + 0.5f *
+            sin(clock * 2.0 * Math.PI * 2.6).toFloat())).coerceIn(0f, 1.1f)
 
         // Startle overrides pupil size briefly
         val startled = now < startleUntil
-        var pupilTarget = if (startled) 0.7f else mood.pupilScale *
-            (1f + 0.25f * lastProx.coerceAtMost(0.4f) + 0.30f * beatPulse)
-        val lidTarget = if (startled) 8f else mood.lidAngle
+        var pupilTarget = if (startled) 0.7f else styleMood.pupilScale *
+            (1f + 0.25f * lastProx.coerceAtMost(0.4f) + 0.42f * beatPulse + 0.18f * grooveLevel)
+        val lidTarget = if (startled) 8f else styleMood.lidAngle
 
         // One-shot gestures override the targets while they play
         when (gesture) {
@@ -205,16 +225,35 @@ class AnimationEngine {
         // Hand over the lens -> close politely. Distinct from sleep: no ZZZ.
         if (covered && !sleeping) opennessTarget = 0f
 
-        applyTo(left, opennessTarget, pupilTarget, lidTarget, dtSec)
-        applyTo(right, opennessTarget, pupilTarget, -lidTarget, dtSec)  // mirrored tilt
+        applyTo(left, opennessTarget, pupilTarget, lidTarget, dtSec, styleMood)
+        applyTo(right, opennessTarget, pupilTarget, -lidTarget, dtSec, styleMood)
 
         // Burn-in drift: whole face wanders +-12 px over a ~10 min cycle
-        driftX = (12.0 * sin(clock * 2.0 * Math.PI / 600.0)).toFloat()
-        driftY = (12.0 * sin(clock * 2.0 * Math.PI / 470.0 + 1.3)).toFloat() -
-            10f * beatPulse
+        val slowDriftX = (12.0 * sin(clock * 2.0 * Math.PI / 600.0)).toFloat()
+        val slowDriftY = (12.0 * sin(clock * 2.0 * Math.PI / 470.0 + 1.3)).toFloat()
+        val grooveSway = sin(clock * 2.0 * Math.PI * 1.8).toFloat() * 8f * grooveLevel
+        val grooveBounce = (0.4f + 0.6f * sin(clock * 2.0 * Math.PI * 3.2).toFloat()) *
+            16f * grooveLevel
+        driftX = slowDriftX + grooveSway
+        driftY = slowDriftY - 12f * beatPulse - grooveBounce
     }
 
-    private fun applyTo(eye: EyeParams, openness: Float, pupilScale: Float, lidAngle: Float, dt: Float) {
+    private fun activeMood(now: Long): Mood = when {
+        sleeping -> mood
+        now < intruderUntil -> Mood.SUSPICIOUS
+        grooveLevel > 0.16f && !covered -> Mood.EXCITED
+        cloudMood != null && !ambientDark && !covered -> cloudMood!!
+        else -> mood
+    }
+
+    private fun applyTo(
+        eye: EyeParams,
+        openness: Float,
+        pupilScale: Float,
+        lidAngle: Float,
+        dt: Float,
+        activeMood: Mood,
+    ) {
         val fast = min(1f, dt * 14f)   // blinks need to be quick
         val slow = min(1f, dt * 5f)    // styling changes ease in gently
         eye.openness += (openness - eye.openness) * fast
@@ -222,7 +261,7 @@ class AnimationEngine {
         eye.pupilY += (gazeY - eye.pupilY) * fast
         eye.pupilScale += (pupilScale - eye.pupilScale) * slow
         eye.lidAngle += (lidAngle - eye.lidAngle) * slow
-        eye.squash += (mood.squash - eye.squash) * slow
+        eye.squash += (activeMood.squash - eye.squash) * slow
     }
 
     companion object {

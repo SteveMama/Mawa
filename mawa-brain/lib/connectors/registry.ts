@@ -1,9 +1,11 @@
 import type { ConnectorState, ManifestConnector } from "../manifest";
+import { companionConnector } from "./companion";
 import { weatherConnector } from "./weather";
 import { personalCalendarConnector, workCalendarConnector } from "./google-calendar";
 
 export const activeConnectors: ManifestConnector[] = [
   weatherConnector,
+  companionConnector,
   personalCalendarConnector,
   workCalendarConnector,
 ];

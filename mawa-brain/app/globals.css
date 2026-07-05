@@ -64,6 +64,7 @@ button:hover { border-color: #687068; }
 .connector small { color: var(--muted); line-height: 1.4; }
 .connector em { color: #626862; font-size: 10px; font-style: normal; text-transform: uppercase; }
 .calendar-auth { margin-top: 30px; padding-top: 26px; border-top: 1px solid var(--line); }
+.companion-card { margin-top: 28px; padding-top: 26px; border-top: 1px solid var(--line); }
 .auth-copy, .auth-warning { color: var(--muted); line-height: 1.6; }
 .auth-list { display: grid; gap: 12px; margin-top: 18px; }
 .auth-slot { display: grid; grid-template-columns: 1fr auto; gap: 14px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.02); }
@@ -74,6 +75,10 @@ button:hover { border-color: #687068; }
 .unlock-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .unlock-controls input { min-width: 220px; border: 1px solid #343834; background: #151815; color: var(--ink); border-radius: 8px; padding: 10px 12px; font: inherit; }
 .auth-actions button[disabled] { cursor: default; opacity: .55; }
+.companion-compose { display: grid; gap: 12px; margin-top: 16px; }
+.companion-compose textarea { min-height: 96px; resize: vertical; border: 1px solid #343834; background: #151815; color: var(--ink); border-radius: 12px; padding: 12px; font: inherit; }
+.companion-compose button[disabled] { cursor: default; opacity: .55; }
+.companion-reply { margin-top: 14px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: rgba(182,217,242,.05); line-height: 1.7; }
 
 footer { display: flex; justify-content: space-between; color: #5f655f; font-size: 11px; padding: 22px 2px; }
 

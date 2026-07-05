@@ -24,14 +24,26 @@ interface GoogleStatusResponse {
   slots: GoogleSlotStatus[];
 }
 
+interface CompanionStatusResponse {
+  ready: boolean;
+  missing: string[];
+  model: string;
+  adminRequired: boolean;
+  adminConfigured: boolean;
+  adminAuthorized: boolean;
+}
+
 export function Dashboard() {
   const [manifest, setManifest] = useState<SceneManifest | null>(null);
   const [googleStatus, setGoogleStatus] = useState<GoogleStatusResponse | null>(null);
+  const [companionStatus, setCompanionStatus] = useState<CompanionStatusResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [authBusy, setAuthBusy] = useState<string | null>(null);
   const [adminToken, setAdminToken] = useState("");
   const [flash, setFlash] = useState<string | null>(null);
+  const [companionInput, setCompanionInput] = useState("How are you feeling on the wall tonight?");
+  const [companionReply, setCompanionReply] = useState<string | null>(null);
 
   const load = useCallback(async (location = DEFAULT_LOCATION) => {
     setLoading(true);
@@ -58,12 +70,21 @@ export function Dashboard() {
     setGoogleStatus((await response.json()) as GoogleStatusResponse);
   }, []);
 
+  const loadCompanionStatus = useCallback(async () => {
+    const response = await fetch("/api/companion/status", { cache: "no-store" });
+    if (!response.ok) throw new Error(`Companion status returned ${response.status}`);
+    setCompanionStatus((await response.json()) as CompanionStatusResponse);
+  }, []);
+
   useEffect(() => {
     load();
     loadGoogleStatus().catch((cause) => {
       setError(cause instanceof Error ? cause.message : "Could not load Google auth status");
     });
-  }, [load, loadGoogleStatus]);
+    loadCompanionStatus().catch((cause) => {
+      setError(cause instanceof Error ? cause.message : "Could not load companion status");
+    });
+  }, [load, loadCompanionStatus, loadGoogleStatus]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -92,7 +113,7 @@ export function Dashboard() {
         method: "POST",
       });
       if (!response.ok) throw new Error(`Disconnect returned ${response.status}`);
-      await Promise.all([load(), loadGoogleStatus()]);
+      await Promise.all([load(), loadGoogleStatus(), loadCompanionStatus()]);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not disconnect Google Calendar");
     } finally {
@@ -110,9 +131,29 @@ export function Dashboard() {
       });
       if (!response.ok) throw new Error("Admin token was rejected");
       setAdminToken("");
-      await Promise.all([load(), loadGoogleStatus()]);
+      await Promise.all([load(), loadGoogleStatus(), loadCompanionStatus()]);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not unlock calendar admin");
+    } finally {
+      setAuthBusy(null);
+    }
+  }
+
+  async function askCompanion() {
+    setAuthBusy("companion");
+    try {
+      const response = await fetch("/api/companion/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: companionInput }),
+      });
+      const payload = (await response.json()) as { reply?: string; error?: string };
+      if (!response.ok || !payload.reply) {
+        throw new Error(payload.error || `Companion returned ${response.status}`);
+      }
+      setCompanionReply(payload.reply);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not reach the companion");
     } finally {
       setAuthBusy(null);
     }
@@ -189,8 +230,8 @@ export function Dashboard() {
                   <div>
                     <strong>Unlock Calendar Admin</strong>
                     <small>
-                      Enter `MAWA_DASHBOARD_ADMIN_TOKEN` to connect or replace the Personal and Work
-                      Google accounts.
+                      Enter `MAWA_DASHBOARD_ADMIN_TOKEN` to manage private connectors and use the
+                      Groq companion tester.
                     </small>
                   </div>
                   <div className="unlock-controls">
@@ -238,6 +279,43 @@ export function Dashboard() {
                 {" · "}Storage: {googleStatus?.storageMode ?? "unknown"}
               </p>
             ) : null}
+          </div>
+
+          <div className="companion-card">
+            <p className="eyebrow">GROQ COMPANION</p>
+            <p className="auth-copy">
+              Same prompt as the wall-facing ambient thought engine. Use this to tune Mawa&apos;s
+              personality before voice is fully wired on the phone.
+            </p>
+            <div className="auth-slot">
+              <div>
+                <strong>{companionStatus?.ready ? "Companion ready" : "Companion sleeping"}</strong>
+                <small>
+                  {companionStatus?.ready
+                    ? `Model: ${companionStatus.model}`
+                    : `Missing: ${companionStatus?.missing.join(", ") || "Groq configuration"}`}
+                </small>
+              </div>
+            </div>
+            <div className="companion-compose">
+              <textarea
+                value={companionInput}
+                onChange={(event) => setCompanionInput(event.target.value)}
+                placeholder="Say something to Mawa..."
+              />
+              <button
+                onClick={askCompanion}
+                disabled={
+                  authBusy === "companion" ||
+                  !companionInput.trim() ||
+                  !companionStatus?.ready ||
+                  !companionStatus.adminAuthorized
+                }
+              >
+                {authBusy === "companion" ? "Listening…" : "Ask Mawa"}
+              </button>
+            </div>
+            {companionReply ? <p className="companion-reply">{companionReply}</p> : null}
           </div>
         </article>
       </section>
