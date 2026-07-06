@@ -20,6 +20,7 @@ class MusicGate(
 ) {
     private var classifier: AudioClassifier? = null
     private var audioData: AudioData? = null
+    private var unavailableReason: String? = null
     private var bufferedSamples = 0
     private var lastAnalysisAt = 0L
     private var musicConfidence = 0f
@@ -55,6 +56,12 @@ class MusicGate(
             Log.w(TAG, "music gate unavailable", error)
             classifier = null
             audioData = null
+            unavailableReason =
+                if ((error.message ?: "").contains(MODEL, ignoreCase = true)) {
+                    "music model missing"
+                } else {
+                    "music classifier unavailable"
+                }
         }
     }
 
@@ -118,6 +125,8 @@ class MusicGate(
     fun confidence(): Float = musicConfidence
 
     fun interference(): Float = interferenceConfidence
+
+    fun unavailableReason(): String? = unavailableReason
 
     fun close() {
         try {

@@ -93,6 +93,10 @@ class BeatDetector(
     private fun detectLoop(audioRecord: AudioRecord) {
         val samples = ShortArray(BUFFER_SAMPLES)
         val gate = MusicGate(context).also { musicGate = it }
+        val rhythmOnlyMode = !gate.enabled
+        if (rhythmOnlyMode) {
+            onStatus("beat: ${gate.unavailableReason() ?: "classifier off"} — rhythm-only mode")
+        }
         var averageEnergy = 0.010f
         var averageRise = 0.006f
         var lastRms = 0f
@@ -120,8 +124,14 @@ class BeatDetector(
             }
             val rms = sqrt(sumSquares / count).toFloat()
             val rise = (rms - lastRms).coerceAtLeast(0f)
-            val threshold = max(MIN_BEAT_ENERGY, averageEnergy * ENERGY_MULTIPLIER)
-            val riseThreshold = max(MIN_RISE_ENERGY, averageRise * RISE_MULTIPLIER)
+            val threshold = max(
+                MIN_BEAT_ENERGY,
+                averageEnergy * if (rhythmOnlyMode) ENERGY_MULTIPLIER_FALLBACK else ENERGY_MULTIPLIER,
+            )
+            val riseThreshold = max(
+                MIN_RISE_ENERGY,
+                averageRise * if (rhythmOnlyMode) RISE_MULTIPLIER_FALLBACK else RISE_MULTIPLIER,
+            )
             val now = SystemClock.elapsedRealtime()
             val gateConfidence = gate.feed(samples, count, now)
             if (lastCandidateAt > 0L && now - lastCandidateAt > RHYTHM_MEMORY_MS) {
@@ -157,9 +167,15 @@ class BeatDetector(
 
                 val gateAllows = !gate.enabled || gate.allowsBeat(now)
                 val gateStrong = !gate.enabled || gate.stronglyAllowsBeat(now)
-                val musicArmed = rhythmicHits >= MIN_RHYTHMIC_HITS &&
-                    stableTempoHits >= MIN_STABLE_TEMPO_HITS &&
-                    rhythmConfidence >= MUSIC_ARM_CONFIDENCE &&
+                val requiredRhythmicHits =
+                    if (rhythmOnlyMode) MIN_RHYTHMIC_HITS_FALLBACK else MIN_RHYTHMIC_HITS
+                val requiredStableTempoHits =
+                    if (rhythmOnlyMode) MIN_STABLE_TEMPO_HITS_FALLBACK else MIN_STABLE_TEMPO_HITS
+                val requiredConfidence =
+                    if (rhythmOnlyMode) MUSIC_ARM_CONFIDENCE_FALLBACK else MUSIC_ARM_CONFIDENCE
+                val musicArmed = rhythmicHits >= requiredRhythmicHits &&
+                    stableTempoHits >= requiredStableTempoHits &&
+                    rhythmConfidence >= requiredConfidence &&
                     gateStrong
                 if (musicArmed) musicActiveUntil = now + MUSIC_HOLD_MS
 
@@ -173,15 +189,29 @@ class BeatDetector(
                     onStatus(
                         "beat: groove ${(strength * 100f).toInt()}%  music ${(gateConfidence * 100f).toInt()}%  noise ${(gate.interference() * 100f).toInt()}%"
                     )
+                } else if (rhythmOnlyMode &&
+                    rhythmicHits >= SOFT_RHYTHMIC_HITS_FALLBACK &&
+                    stableTempoHits >= SOFT_STABLE_TEMPO_HITS_FALLBACK &&
+                    now - lastStatusAt > STATUS_INTERVAL_MS / 2
+                ) {
+                    lastBeatAt = now
+                    lastStatusAt = now
+                    val strength =
+                        ((((rms / threshold) - 1f) * 0.46f) + ((rise / riseThreshold) * 0.30f))
+                            .coerceIn(0.12f, 0.44f) * (0.60f + 0.40f * rhythmConfidence)
+                    onBeat(strength.coerceIn(0.12f, 0.44f))
+                    onStatus(
+                        "beat: soft ${(strength * 100f).toInt()}%  rhythm-only"
+                    )
                 } else if (now - lastStatusAt > STATUS_INTERVAL_MS / 2) {
                     lastStatusAt = now
                     val gateStatus = if (gate.enabled) {
                         "music ${(gateConfidence * 100f).toInt()}%  noise ${(gate.interference() * 100f).toInt()}%"
                     } else {
-                        "music gate off"
+                        "rhythm-only"
                     }
                     onStatus(
-                        "beat: heard sound, waiting (${rhythmicHits}/${MIN_RHYTHMIC_HITS}, tempo ${stableTempoHits}/${MIN_STABLE_TEMPO_HITS})  $gateStatus"
+                        "beat: heard sound, waiting (${rhythmicHits}/${requiredRhythmicHits}, tempo ${stableTempoHits}/${requiredStableTempoHits})  $gateStatus"
                     )
                 }
             } else if (now - lastStatusAt > STATUS_INTERVAL_MS) {
@@ -189,7 +219,7 @@ class BeatDetector(
                 val gateStatus = if (gate.enabled) {
                     "music ${(gateConfidence * 100f).toInt()}%  noise ${(gate.interference() * 100f).toInt()}%"
                 } else {
-                    "music gate off"
+                    "rhythm-only"
                 }
                 onStatus(
                     "beat: listening ${(rms * 1000f).toInt()}/${(threshold * 1000f).toInt()}  $gateStatus"
@@ -209,7 +239,9 @@ class BeatDetector(
         private const val MIN_BEAT_ENERGY = 0.020f
         private const val MIN_RISE_ENERGY = 0.0060f
         private const val ENERGY_MULTIPLIER = 1.55f
+        private const val ENERGY_MULTIPLIER_FALLBACK = 1.38f
         private const val RISE_MULTIPLIER = 1.45f
+        private const val RISE_MULTIPLIER_FALLBACK = 1.26f
         private const val STRONG_BEAT_MULTIPLIER = 1.58f
         private const val REFRACTORY_MS = 180L
         private const val STATUS_INTERVAL_MS = 1_200L
@@ -217,9 +249,14 @@ class BeatDetector(
         private const val RHYTHM_INTERVAL_MAX_MS = 950L
         private const val RHYTHM_MEMORY_MS = 1_800L
         private const val MIN_RHYTHMIC_HITS = 3
+        private const val MIN_RHYTHMIC_HITS_FALLBACK = 2
         private const val MIN_STABLE_TEMPO_HITS = 2
+        private const val MIN_STABLE_TEMPO_HITS_FALLBACK = 1
+        private const val SOFT_RHYTHMIC_HITS_FALLBACK = 2
+        private const val SOFT_STABLE_TEMPO_HITS_FALLBACK = 1
         private const val RHYTHM_CONFIDENCE_STEP = 0.34f
         private const val MUSIC_ARM_CONFIDENCE = 0.58f
+        private const val MUSIC_ARM_CONFIDENCE_FALLBACK = 0.32f
         private const val OFF_RHYTHM_PENALTY = 0.55f
         private const val MUSIC_HOLD_MS = 2_600L
         private const val TEMPO_STABILITY_MIN = 0.78

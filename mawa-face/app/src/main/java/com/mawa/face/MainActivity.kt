@@ -3,14 +3,18 @@ package com.mawa.face
 import android.Manifest
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.provider.Settings
 import android.view.View
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts.RequestPermission
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.mawa.face.audio.Speech
@@ -81,16 +85,32 @@ class MainActivity : ComponentActivity() {
     private var firstTapAt = 0L
     private var lastTapAt = 0L
     private var scenePollMs = SCENE_CHECK_MS
+    private var micPermissionRequestedAtLeastOnce = false
 
     private val permissions =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
             if (result[Manifest.permission.CAMERA] == true) startTracking()
-            if (result[Manifest.permission.RECORD_AUDIO] == true) {
-                startBeatDetection()
-            } else if (result.containsKey(Manifest.permission.RECORD_AUDIO)) {
-                beatStatus = "beat: disabled (microphone permission denied)"
-            }
             refreshScene()
+            refreshOverlay()
+        }
+
+    private val micPermission =
+        registerForActivityResult(RequestPermission()) { granted ->
+            micPermissionRequestedAtLeastOnce = true
+            if (granted) {
+                beatStatus = "beat: microphone granted"
+                startBeatDetection()
+            } else {
+                beatStatus =
+                    if (shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)) {
+                        "beat: microphone denied — tap to retry"
+                    } else if (micPermissionRequestedAtLeastOnce) {
+                        "beat: microphone blocked — enable in app settings"
+                    } else {
+                        "beat: microphone permission needed"
+                    }
+            }
+            refreshOverlay()
         }
 
     private val updateCheck = object : Runnable {
@@ -159,22 +179,22 @@ class MainActivity : ComponentActivity() {
         ) {
             startTracking()
         }
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-            == PackageManager.PERMISSION_GRANTED
-        ) {
-            startBeatDetection()
-        }
         permissions.launch(
             arrayOf(
                 Manifest.permission.CAMERA,
                 Manifest.permission.ACCESS_COARSE_LOCATION,
-                Manifest.permission.RECORD_AUDIO,
             )
         )
+        requestMicrophonePermissionIfNeeded(force = false)
 
         handler.post(updateCheck)
         handler.post(ambientTick)
         handler.post(sceneTick)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        requestMicrophonePermissionIfNeeded(force = false)
     }
 
     override fun onDestroy() {
@@ -229,6 +249,47 @@ class MainActivity : ComponentActivity() {
                 }
             },
         ).also { it.start() }
+    }
+
+    private fun hasMicrophonePermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+
+    private fun requestMicrophonePermissionIfNeeded(force: Boolean) {
+        if (hasMicrophonePermission()) {
+            startBeatDetection()
+            return
+        }
+        beatDetector?.stop()
+        beatDetector = null
+        beatStatus =
+            if (micPermissionRequestedAtLeastOnce &&
+                !shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)
+            ) {
+                "beat: microphone blocked — enable in app settings"
+            } else {
+                "beat: microphone permission needed"
+            }
+        refreshOverlay()
+
+        if (micPermissionRequestedAtLeastOnce &&
+            !shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)
+        ) {
+            if (force) openAppSettings()
+            return
+        }
+
+        if (force || !micPermissionRequestedAtLeastOnce) {
+            micPermission.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    private fun openAppSettings() {
+        startActivity(
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.fromParts("package", packageName, null)
+            }
+        )
     }
 
     private fun startTracking() {
@@ -390,6 +451,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun onScreenTap() {
+        if (!hasMicrophonePermission()) {
+            requestMicrophonePermissionIfNeeded(force = true)
+            return
+        }
         val now = SystemClock.elapsedRealtime()
         if (now - lastTapAt <= DOUBLE_TAP_MS) {
             lastTapAt = 0L
