@@ -39,6 +39,11 @@ function recognized(value: string | null): "me" | "other" | "unknown" | "none" {
   }
 }
 
+function shortText(value: string | null, maxLength: number): string | undefined {
+  const text = value?.trim();
+  return text ? text.slice(0, maxLength) : undefined;
+}
+
 export async function GET(request: NextRequest) {
   const privateAccess = hasPrivateConnectorAccess(request);
   const manifest = await composeManifest({
@@ -51,6 +56,7 @@ export async function GET(request: NextRequest) {
     perception: {
       faceCount: integer(request.nextUrl.searchParams.get("faces"), 0, 0, 8),
       recognized: recognized(request.nextUrl.searchParams.get("recognized")),
+      personLabel: shortText(request.nextUrl.searchParams.get("person"), 40),
       proximity: unit(request.nextUrl.searchParams.get("prox")),
       covered: flag(request.nextUrl.searchParams.get("covered")),
       ambientDark: flag(request.nextUrl.searchParams.get("dark")),

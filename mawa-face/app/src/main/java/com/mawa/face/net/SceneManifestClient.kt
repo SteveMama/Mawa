@@ -11,6 +11,7 @@ import com.mawa.face.weather.WeatherCondition
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 import java.util.Locale
 
 data class SceneSnapshot(
@@ -38,6 +39,7 @@ class SceneManifestClient(
     data class PresenceSnapshot(
         val faceCount: Int = 0,
         val recognized: String = "none",
+        val personLabel: String? = null,
         val proximity: Float = 0f,
         val covered: Boolean = false,
         val ambientDark: Boolean = false,
@@ -66,11 +68,15 @@ class SceneManifestClient(
                 val lon = String.format(Locale.US, "%.2f", longitude)
                 val prox = String.format(Locale.US, "%.3f", presence.proximity.coerceIn(0f, 1f))
                 val groove = String.format(Locale.US, "%.3f", presence.groove.coerceIn(0f, 1f))
+                val personLabel = presence.personLabel?.take(40)?.let {
+                    URLEncoder.encode(it, "UTF-8")
+                } ?: ""
                 val url = URL(
                     "$baseUrl/api/manifest?lat=$lat&lon=$lon" +
                         "&device=oneplus-wall&version=$appVersion" +
                         "&faces=${presence.faceCount.coerceIn(0, 8)}" +
                         "&recognized=${presence.recognized.take(16)}" +
+                        "&person=$personLabel" +
                         "&prox=$prox" +
                         "&covered=${if (presence.covered) 1 else 0}" +
                         "&dark=${if (presence.ambientDark) 1 else 0}" +

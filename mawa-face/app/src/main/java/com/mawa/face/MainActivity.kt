@@ -27,6 +27,7 @@ import com.mawa.face.sensing.LightSensor
 import com.mawa.face.update.Updater
 import com.mawa.face.util.LocationHelper
 import com.mawa.face.util.TimeOfDay
+import com.mawa.face.vision.FaceGallery
 import com.mawa.face.vision.FaceRecognizer
 import com.mawa.face.vision.FaceTracker
 import com.mawa.face.vision.GazeMapper
@@ -37,6 +38,7 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var eyeView: EyeView
     private lateinit var prefs: SharedPreferences
+    private lateinit var faceGallery: FaceGallery
     private lateinit var speech: Speech
     private var beatDetector: BeatDetector? = null
     private var tracker: FaceTracker? = null
@@ -77,6 +79,9 @@ class MainActivity : ComponentActivity() {
     private var lastRecognizedMeAtMs = 0L
     private var latestFaceCount = 0
     private var latestProx = 0f
+    private var latestObservedPersonId: String? = null
+    private var latestObservedPersonLabel: String? = null
+    private var latestObservedPersonSimilarity: Float? = null
 
     // Blink-back edge detection
     private var prevEyeOpen = 1f
@@ -151,6 +156,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         prefs = getSharedPreferences("mawa", MODE_PRIVATE)
+        faceGallery = FaceGallery(prefs)
         GazeMapper.load(prefs)
         speech = Speech(this)
         recognizer = FaceRecognizer(this)
@@ -334,6 +340,9 @@ class MainActivity : ComponentActivity() {
                 prevFaceCount = 0
                 latestFaceCount = 0
                 latestProx = 0f
+                latestObservedPersonId = null
+                latestObservedPersonLabel = null
+                latestObservedPersonSimilarity = null
                 if (greetedThisVisit) awaySinceMs = SystemClock.elapsedRealtime()
                 greetedThisVisit = false
                 faceLine = "no face in view"
@@ -353,7 +362,12 @@ class MainActivity : ComponentActivity() {
                 val enrolled = enrolledEmbedding
                 recognitionScore = enrolled?.let { FaceRecognizer.cosine(emb, it) }
                 recognizedIsMe = recognitionScore?.let { it > FaceRecognizer.THRESHOLD } == true
-                if (recognizedIsMe) lastRecognizedMeAtMs = SystemClock.elapsedRealtime()
+                val now = SystemClock.elapsedRealtime()
+                if (recognizedIsMe) lastRecognizedMeAtMs = now
+                val galleryMatch = faceGallery.observe(emb, now)
+                latestObservedPersonId = galleryMatch.identity.id
+                latestObservedPersonLabel = galleryMatch.identity.label
+                latestObservedPersonSimilarity = galleryMatch.similarity
             },
         ).also {
             it.recognitionEnabled = recognizer?.enabled == true
@@ -389,6 +403,7 @@ class MainActivity : ComponentActivity() {
         return SceneManifestClient.PresenceSnapshot(
             faceCount = latestFaceCount,
             recognized = recognized,
+            personLabel = latestObservedPersonLabel,
             proximity = latestProx,
             covered = eyeView.engine.covered,
             ambientDark = eyeView.engine.ambientDark,
@@ -398,16 +413,22 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun recognitionSummary(): String {
-        if (recognizer?.enabled != true) return "  rec:model-off"
-        if (enrolledEmbedding == null) return "  rec:not-enrolled"
-        val score = recognitionScore ?: return "  rec:waiting"
+        val gallery = latestObservedPersonId?.let { id ->
+            val label = latestObservedPersonLabel ?: id
+            val sim = latestObservedPersonSimilarity?.let { String.format(Locale.US, "%.3f", it) } ?: "--"
+            "  seen:$label@$sim"
+        } ?: ""
+        if (recognizer?.enabled != true) return "  rec:model-off$gallery"
+        if (enrolledEmbedding == null) return "  rec:not-enrolled$gallery"
+        val score = recognitionScore ?: return "  rec:waiting$gallery"
         val identity = if (recognizedIsMe) "ME" else "OTHER"
         return String.format(
             Locale.US,
-            "  rec:%.3f/%s (cut %.2f)",
+            "  rec:%.3f/%s (cut %.2f)%s",
             score,
             identity,
             FaceRecognizer.THRESHOLD,
+            gallery,
         )
     }
 

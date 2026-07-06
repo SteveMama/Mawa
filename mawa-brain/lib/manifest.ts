@@ -88,6 +88,7 @@ export interface RoomContext {
   perception?: {
     faceCount: number;
     recognized: "me" | "other" | "unknown" | "none";
+    personLabel?: string;
     proximity: number;
     covered: boolean;
     ambientDark: boolean;

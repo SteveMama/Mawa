@@ -331,6 +331,9 @@ function describeRoom(room: RoomContext): string {
       parts.push("No one is in view.");
     } else {
       parts.push(`${perception.faceCount} face${perception.faceCount === 1 ? "" : "s"} are in view.`);
+      if (perception.personLabel) {
+        parts.push(`${perception.personLabel} is the person currently in view.`);
+      }
       switch (perception.recognized) {
         case "me":
           parts.push("The familiar person is present.");
