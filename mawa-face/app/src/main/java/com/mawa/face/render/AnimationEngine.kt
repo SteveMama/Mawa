@@ -241,8 +241,8 @@ class AnimationEngine {
     private fun activeMood(now: Long): Mood = when {
         sleeping -> mood
         now < intruderUntil -> Mood.SUSPICIOUS
-        grooveLevel > 0.16f && !covered -> Mood.EXCITED
         cloudMood != null && !ambientDark && !covered -> cloudMood!!
+        grooveLevel > 0.16f && !covered -> Mood.EXCITED
         else -> mood
     }
 

@@ -49,7 +49,8 @@ What works in this phase:
 - Identity lock: once your face is enrolled, double-tap toggles between
   "locked on you" and a relaxed ambient mode
 - OAuth-backed Personal and Work Google Calendar slots with encrypted refresh
-  tokens, dashboard connect buttons, and private next-event panels
+  tokens, dashboard connect buttons, and private next-event panels; Google OAuth
+  now also unlocks the dashboard session
 - Groq-backed companion personality: ambient thought panels in the manifest and
   a protected dashboard chat tester using the same wall-companion prompt
 

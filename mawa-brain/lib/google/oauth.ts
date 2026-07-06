@@ -75,7 +75,6 @@ export function googleCalendarPrerequisites(): { ready: boolean; missing: string
   if (!clientSecret()) missing.push("GOOGLE_CLIENT_SECRET");
   if (!signingSecret()) missing.push("MAWA_SIGNING_SECRET");
   if (!process.env.MAWA_STATE_ENCRYPTION_SECRET?.trim()) missing.push("MAWA_STATE_ENCRYPTION_SECRET");
-  if (process.env.VERCEL === "1" && !adminToken()) missing.push("MAWA_DASHBOARD_ADMIN_TOKEN");
   if (process.env.VERCEL === "1" && !process.env.BLOB_READ_WRITE_TOKEN?.trim()) {
     missing.push("BLOB_READ_WRITE_TOKEN");
   }
@@ -87,7 +86,7 @@ function adminToken(): string | null {
 }
 
 export function dashboardAdminRequired(): boolean {
-  return process.env.VERCEL === "1" || !!adminToken();
+  return !!adminToken();
 }
 
 export function dashboardAdminConfigured(): boolean {

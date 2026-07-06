@@ -98,7 +98,7 @@ release; the app self-updates over the air (checks every 15 min). See
       next-event panels, private-device-only output
 - [ ] Create Google OAuth web credentials and add prod envs:
       `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `MAWA_SIGNING_SECRET`,
-      `MAWA_STATE_ENCRYPTION_SECRET`, `MAWA_DASHBOARD_ADMIN_TOKEN`, and a
+      `MAWA_STATE_ENCRYPTION_SECRET`, and a
       private `BLOB_READ_WRITE_TOKEN`
 - [ ] Calendar morning brief and meeting heads-up 10 min prior
 - [ ] Gmail (read-only): important-email mentions (sender allowlist)

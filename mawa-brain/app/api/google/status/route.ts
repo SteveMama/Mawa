@@ -1,10 +1,6 @@
 import { isDashboardAuthorized } from "../../../../lib/auth";
 import { NextResponse } from "next/server";
-import {
-  dashboardAdminConfigured,
-  dashboardAdminRequired,
-  googleCalendarPrerequisites,
-} from "../../../../lib/google/oauth";
+import { dashboardAdminConfigured, dashboardAdminRequired, googleCalendarPrerequisites } from "../../../../lib/google/oauth";
 import {
   googleCalendarStorageMode,
   googleCalendarStorageReady,
@@ -41,7 +37,9 @@ export async function GET(request: Request) {
               ? `Connected to ${account.email}`
               : "Connected to this account's primary calendar"
             : prerequisites.ready && storageReady
-              ? `Connect a ${slot.shortName.toLowerCase()} Google account`
+              ? adminAuthorized
+                ? `Connect a ${slot.shortName.toLowerCase()} Google account`
+                : `Sign in with Google to connect ${slot.shortName.toLowerCase()}`
               : "Google auth is not fully configured yet",
         };
       }),

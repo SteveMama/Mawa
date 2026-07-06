@@ -40,7 +40,6 @@ export function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [authBusy, setAuthBusy] = useState<string | null>(null);
-  const [adminToken, setAdminToken] = useState("");
   const [flash, setFlash] = useState<string | null>(null);
   const [companionInput, setCompanionInput] = useState("How are you feeling on the wall tonight?");
   const [companionReply, setCompanionReply] = useState<string | null>(null);
@@ -116,24 +115,6 @@ export function Dashboard() {
       await Promise.all([load(), loadGoogleStatus(), loadCompanionStatus()]);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not disconnect Google Calendar");
-    } finally {
-      setAuthBusy(null);
-    }
-  }
-
-  async function unlockAdmin() {
-    setAuthBusy("admin");
-    try {
-      const response = await fetch("/api/google/unlock", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: adminToken }),
-      });
-      if (!response.ok) throw new Error("Admin token was rejected");
-      setAdminToken("");
-      await Promise.all([load(), loadGoogleStatus(), loadCompanionStatus()]);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not unlock calendar admin");
     } finally {
       setAuthBusy(null);
     }
@@ -221,29 +202,19 @@ export function Dashboard() {
           <div className="calendar-auth">
             <p className="eyebrow">GOOGLE CALENDAR</p>
             <p className="auth-copy">
-              Connect two separate Google accounts. Each slot syncs that account&apos;s primary
-              calendar and stays private unless this dashboard or the wall device is authorized.
+              Connect two separate Google accounts. The first successful Google sign-in also
+              unlocks this dashboard session, so Google login is the real entry point for private
+              controls.
             </p>
             <div className="auth-list">
-              {googleStatus?.adminRequired && !googleStatus.adminAuthorized ? (
+              {!googleStatus?.adminAuthorized ? (
                 <div className="auth-slot auth-unlock">
                   <div>
-                    <strong>Unlock Calendar Admin</strong>
+                    <strong>Sign In Through Google</strong>
                     <small>
-                      Enter `MAWA_DASHBOARD_ADMIN_TOKEN` to manage private connectors and use the
-                      Groq companion tester.
+                      Click either calendar connect button below. After Google completes the OAuth
+                      flow, this browser session becomes the authorized dashboard session too.
                     </small>
-                  </div>
-                  <div className="unlock-controls">
-                    <input
-                      type="password"
-                      value={adminToken}
-                      onChange={(event) => setAdminToken(event.target.value)}
-                      placeholder="Admin token"
-                    />
-                    <button onClick={unlockAdmin} disabled={authBusy === "admin" || !adminToken.trim()}>
-                      {authBusy === "admin" ? "Unlocking…" : "Unlock"}
-                    </button>
                   </div>
                 </div>
               ) : null}
@@ -264,7 +235,7 @@ export function Dashboard() {
                     ) : (
                       <button
                         onClick={() => window.location.assign(`/api/google/connect?slot=${slot.slot}`)}
-                        disabled={!googleStatus.ready || !googleStatus.adminAuthorized}
+                        disabled={!googleStatus.ready}
                       >
                         Connect Google Account
                       </button>
@@ -315,6 +286,12 @@ export function Dashboard() {
                 {authBusy === "companion" ? "Listening…" : "Ask Mawa"}
               </button>
             </div>
+            {!companionStatus?.adminAuthorized ? (
+              <p className="auth-warning">
+                Sign in through one of the Google Calendar connect buttons first to unlock the
+                private companion tester in this browser session.
+              </p>
+            ) : null}
             {companionReply ? <p className="companion-reply">{companionReply}</p> : null}
           </div>
         </article>

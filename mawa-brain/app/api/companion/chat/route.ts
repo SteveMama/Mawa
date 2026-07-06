@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   if (!isDashboardAuthorized(request)) {
-    return NextResponse.json({ error: "admin authorization required" }, { status: 401 });
+    return NextResponse.json({ error: "sign in through Google first" }, { status: 401 });
   }
 
   const payload = (await request.json().catch(() => ({}))) as { message?: string };
@@ -25,4 +25,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

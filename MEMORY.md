@@ -32,8 +32,9 @@ in which to extend it.
   persisted on-device.
 - Personal and Work Google Calendar connectors now use Google OAuth instead of
   ICS feeds. The dashboard can connect one Google account per slot, stores
-  refresh tokens encrypted at rest, and reads each account's primary calendar
-  for the next 24 hours.
+  refresh tokens encrypted at rest, reads each account's primary calendar
+  for the next 24 hours, and uses the Google OAuth callback to unlock the
+  current dashboard session.
 - Groq personality is now implemented in the brain. If `GROQ_API_KEY` is set,
   the manifest can emit a private ambient thought panel and cloud-driven mood,
   and the dashboard exposes a protected chat tester using the same prompt.
@@ -68,7 +69,7 @@ in which to extend it.
 4. **Calendar activation:** create Google OAuth web credentials, add the
    production secrets (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
    `MAWA_SIGNING_SECRET`, `MAWA_STATE_ENCRYPTION_SECRET`,
-   `MAWA_DASHBOARD_ADMIN_TOKEN`, `BLOB_READ_WRITE_TOKEN`), then connect the
+   `BLOB_READ_WRITE_TOKEN`), then connect the
    Personal and Work accounts from the dashboard and verify panels on the
    phone.
 5. **Calendar behaviors:** morning brief on first sighting and meeting heads-up

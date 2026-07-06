@@ -274,10 +274,11 @@ flattens their output, and sets explicit generation/expiry times.
 
 Groq is now the default personality engine via its OpenAI-compatible chat
 completions API. The brain owns one shared system prompt for two surfaces:
-private ambient thought panels in the manifest and a protected dashboard chat
-tester. Anthropic or local Ollama can still be added later behind the same
-abstraction. Rate-limit handling remains one bounded retry followed by a short
-canned response so the phone never waits indefinitely.
+private ambient thought panels in the manifest and a dashboard chat tester
+unlocked by the Google OAuth browser session. Anthropic or local Ollama can
+still be added later behind the same abstraction. Rate-limit handling remains
+one bounded retry followed by a short canned response so the phone never waits
+indefinitely.
 
 Vercel functions have no durable local filesystem. Conversation memory,
 chattiness budgets, encrypted OAuth refresh tokens, and scheduled connector

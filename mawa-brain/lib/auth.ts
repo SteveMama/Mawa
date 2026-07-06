@@ -1,9 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import {
-  DASHBOARD_SESSION_COOKIE,
-  dashboardAdminRequired,
-  readDashboardSessionToken,
-} from "./google/oauth";
+import { DASHBOARD_SESSION_COOKIE, readDashboardSessionToken } from "./google/oauth";
 
 /** Private connector data is emitted only to the paired wall device. */
 export function isDeviceAuthorized(request: Request): boolean {
@@ -17,7 +13,6 @@ export function isDeviceAuthorized(request: Request): boolean {
 }
 
 export function isDashboardAuthorized(request: Request): boolean {
-  if (!dashboardAdminRequired()) return true;
   const cookieHeader = request.headers.get("cookie") ?? "";
   const token = cookieHeader
     .split(/;\s*/)
