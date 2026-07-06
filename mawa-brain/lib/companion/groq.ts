@@ -8,8 +8,10 @@ interface GroqMessage {
 
 interface AmbientThought {
   mood: MawaMood;
+  eyebrow: string;
   title: string;
   detail: string;
+  accent: string;
   animation: SceneAnimation;
 }
 
@@ -36,14 +38,16 @@ const AMBIENT_RESPONSE_FORMAT = {
     schema: {
       type: "object",
       additionalProperties: false,
-      required: ["mood", "title", "detail", "animation"],
+      required: ["mood", "eyebrow", "title", "detail", "accent", "animation"],
       properties: {
         mood: {
           type: "string",
           enum: ["neutral", "happy", "grumpy", "sleepy", "suspicious", "excited"],
         },
+        eyebrow: { type: "string" },
         title: { type: "string" },
         detail: { type: "string" },
+        accent: { type: "string" },
         animation: {
           type: "object",
           additionalProperties: false,
@@ -96,12 +100,7 @@ function supportsStrictStructuredOutput(model: string): boolean {
 export function groqAmbientModel(): string {
   const configured = process.env.GROQ_AMBIENT_MODEL?.trim();
   if (configured) return configured;
-  const chatModel = groqModel();
-  return supportsStrictStructuredOutput(chatModel) ? chatModel : "openai/gpt-oss-20b";
-}
-
-function ambientResponseFormat() {
-  return AMBIENT_JSON_OBJECT_FORMAT;
+  return groqModel();
 }
 
 function groqApiKey(): string | null {
@@ -245,6 +244,28 @@ function clamp(value: unknown, min: number, max: number, fallback: number): numb
   return Math.min(max, Math.max(min, numeric));
 }
 
+function normalizeEyebrow(value: unknown): string {
+  return String(value ?? "MAWA")
+    .trim()
+    .replace(/[^A-Za-z ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .slice(0, 20)
+    .toUpperCase() || "MAWA";
+}
+
+function normalizeAccent(value: unknown, mood: MawaMood): string {
+  const raw = String(value ?? "").trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(raw)) return raw.toUpperCase();
+  return ({
+    happy: "#F2C27B",
+    grumpy: "#C59BFF",
+    sleepy: "#8FA6C0",
+    suspicious: "#78D9C8",
+    excited: "#FFB36E",
+    neutral: "#B6D9F2",
+  } satisfies Record<MawaMood, string>)[mood];
+}
+
 function blendAnimation(base: SceneAnimation, candidate: Record<string, unknown> | undefined): SceneAnimation {
   const animation = candidate ?? {};
   return {
@@ -269,15 +290,19 @@ function parseAmbient(raw: string): AmbientThought {
   if (!objectMatch) throw new Error("Groq ambient response was malformed");
   const parsed = JSON.parse(objectMatch[0]) as {
     mood?: string;
+    eyebrow?: string;
     title?: string;
     detail?: string;
+    accent?: string;
     animation?: Record<string, unknown>;
   };
   const mood = normalizeMood(parsed.mood ?? "neutral");
   return {
     mood,
+    eyebrow: normalizeEyebrow(parsed.eyebrow),
     title: (parsed.title ?? "Quiet orbit").trim().slice(0, 20),
     detail: (parsed.detail ?? "Keeping the room lightly watched.").trim().slice(0, 44),
+    accent: normalizeAccent(parsed.accent, mood),
     animation: blendAnimation(MOOD_ANIMATION[mood], parsed.animation),
   };
 }
@@ -293,6 +318,10 @@ function describeRoom(room: RoomContext): string {
     if (room.events.length > 1) {
       parts.push(`There are ${room.events.length} events in the next 24 hours.`);
     }
+    const workCount = room.events.filter((event) => event.slot === "work").length;
+    const personalCount = room.events.length - workCount;
+    if (workCount > 0) parts.push(`${workCount} of those are work events.`);
+    if (personalCount > 0) parts.push(`${personalCount} of those are personal events.`);
   }
   return parts.join(" ");
 }
@@ -316,19 +345,32 @@ function fallbackThought(room: RoomContext): AmbientThought {
     room.dayPart === "morning" ? "happy" :
     room.events.length >= 3 ? "grumpy" :
     "neutral";
+  const eyebrow =
+    room.dayPart === "late night" ? "LATE WATCH" :
+    room.dayPart === "morning" ? "DRY LIGHT" :
+    room.events.length >= 3 ? "BRACED" :
+    room.dayPart === "evening" ? "HOLDING" :
+    "MAWA";
   const title =
     room.dayPart === "late night" ? "Night watch" :
     room.dayPart === "morning" ? "Soft start" :
-    room.events.length >= 3 ? "Braced" :
+    room.events.length >= 3 ? "Braced a bit" :
     room.dayPart === "evening" ? "Room held" :
     "Quiet orbit";
   const detail =
     room.dayPart === "late night" ? "Keeping the room dim and patient." :
-    room.dayPart === "morning" ? "Taking the light a little brighter." :
-    room.events.length >= 3 ? "A full day is stacking up." :
-    room.dayPart === "evening" ? "Watching the edges of the room." :
+    room.dayPart === "morning" ? "Taking the light a touch brighter." :
+    room.events.length >= 3 ? "The day is stacking its weight." :
+    room.dayPart === "evening" ? "Watching the edges settle down." :
     "Keeping the room lightly watched.";
-  return { mood, title, detail, animation: MOOD_ANIMATION[mood] };
+  return {
+    mood,
+    eyebrow,
+    title,
+    detail,
+    accent: normalizeAccent(undefined, mood),
+    animation: MOOD_ANIMATION[mood],
+  };
 }
 
 export async function generateAmbientThought(
@@ -354,7 +396,7 @@ export async function generateAmbientThought(
         ],
         120,
         0.65,
-        ambientResponseFormat(),
+        undefined,
         model,
       );
       return parseAmbient(raw);

@@ -13,6 +13,7 @@ import android.view.View
 import com.mawa.face.scene.PanelSlot
 import com.mawa.face.scene.ScenePanel
 import com.mawa.face.weather.WeatherCondition
+import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.random.Random
@@ -130,8 +131,16 @@ class EyeView @JvmOverloads constructor(
         val glyph: String,
         val size: Float,
     )
+    private class OrbitMote(
+        var angle: Float,
+        var radius: Float,
+        var speed: Float,
+        var size: Float,
+        var alphaBias: Float,
+    )
     private val flakes = ArrayList<Flake>()
     private val glyphs = ArrayList<MusicGlyph>()
+    private val orbitMotes = ArrayList<OrbitMote>()
     private var flakeKind: WeatherCondition? = null
 
     override fun onDraw(canvas: Canvas) {
@@ -149,6 +158,7 @@ class EyeView @JvmOverloads constructor(
         val eyeGap = width * 0.28f
 
         drawMusicBackdrop(canvas, cx, cy, eyeGap, dt)
+        drawAtmosphere(canvas, cx, cy, eyeGap, dt)
         drawEye(canvas, cx - eyeGap / 2f, cy, engine.left)
         drawEye(canvas, cx + eyeGap / 2f, cy, engine.right)
         drawFocusFrame(canvas, cx, cy, eyeGap)
@@ -171,11 +181,14 @@ class EyeView @JvmOverloads constructor(
         val auraLevel = engine.auraLevel()
         val barLevel = engine.barLevel()
         val beat = engine.beatLevel()
-        if (auraLevel <= 0.08f && barLevel <= 0.08f && beat <= 0.18f && !engine.identityLockEnabled) return
+        val expressiveness = engine.expressivenessLevel()
+        if (auraLevel <= 0.08f && barLevel <= 0.08f && beat <= 0.18f &&
+            expressiveness <= 0.12f && !engine.identityLockEnabled
+        ) return
 
         val palette = paletteColors(engine.palette())
 
-        val pulseAlpha = (26 + 110 * auraLevel + 90 * beat).toInt().coerceIn(0, 205)
+        val pulseAlpha = (26 + 110 * auraLevel + 90 * beat + 55 * expressiveness).toInt().coerceIn(0, 205)
         auraPaint.color = Color.argb(pulseAlpha, Color.red(palette.primary), Color.green(palette.primary), Color.blue(palette.primary))
         val radius = width * (0.13f + 0.07f * auraLevel)
         canvas.drawCircle(cx - eyeGap / 2f, cy, radius, auraPaint)
@@ -215,6 +228,45 @@ class EyeView @JvmOverloads constructor(
         }
 
         musicPhase += dt
+    }
+
+    private fun drawAtmosphere(canvas: Canvas, cx: Float, cy: Float, eyeGap: Float, dt: Float) {
+        val expressiveness = engine.expressivenessLevel()
+        val aura = engine.auraLevel()
+        if (expressiveness <= 0.14f && aura <= 0.12f) {
+            orbitMotes.clear()
+            return
+        }
+
+        val palette = paletteColors(engine.palette())
+        val desired = (3 + ((expressiveness + aura) * 10f).toInt()).coerceIn(3, 12)
+        while (orbitMotes.size < desired) {
+            orbitMotes.add(
+                OrbitMote(
+                    angle = Random.nextFloat() * (Math.PI * 2.0).toFloat(),
+                    radius = width * (0.12f + Random.nextFloat() * 0.18f),
+                    speed = 0.18f + Random.nextFloat() * 0.55f,
+                    size = width * (0.003f + Random.nextFloat() * 0.004f),
+                    alphaBias = 0.45f + Random.nextFloat() * 0.55f,
+                )
+            )
+        }
+        while (orbitMotes.size > desired) orbitMotes.removeAt(orbitMotes.lastIndex)
+
+        for ((index, mote) in orbitMotes.withIndex()) {
+            mote.angle += dt * mote.speed * (0.6f + expressiveness * 1.3f)
+            val anchorX = if (index % 2 == 0) cx - eyeGap / 2f else cx + eyeGap / 2f
+            val offsetY = sin(mote.angle * 0.7f + index).toFloat() * height * 0.035f
+            val x = anchorX + cos(mote.angle.toDouble()).toFloat() * mote.radius
+            val y = cy + sin(mote.angle.toDouble()).toFloat() * mote.radius * 0.55f + offsetY
+            auraPaint.color = Color.argb(
+                (22 + 105 * expressiveness * mote.alphaBias + 48 * aura).toInt().coerceIn(0, 170),
+                Color.red(if (index % 3 == 0) palette.secondary else palette.primary),
+                Color.green(if (index % 3 == 0) palette.secondary else palette.primary),
+                Color.blue(if (index % 3 == 0) palette.secondary else palette.primary),
+            )
+            canvas.drawCircle(x, y, mote.size * (0.8f + 0.6f * expressiveness), auraPaint)
+        }
     }
 
     private fun drawFocusFrame(canvas: Canvas, cx: Float, cy: Float, eyeGap: Float) {

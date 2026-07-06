@@ -100,8 +100,10 @@ class BeatDetector(
         var lastCandidateAt = 0L
         var lastStatusAt = 0L
         var rhythmicHits = 0
+        var stableTempoHits = 0
         var rhythmConfidence = 0f
         var musicActiveUntil = 0L
+        var lastIntervalMs = 0L
 
         while (running) {
             val count = try {
@@ -124,7 +126,9 @@ class BeatDetector(
             val gateConfidence = gate.feed(samples, count, now)
             if (lastCandidateAt > 0L && now - lastCandidateAt > RHYTHM_MEMORY_MS) {
                 rhythmicHits = 0
+                stableTempoHits = 0
                 rhythmConfidence = 0f
+                lastIntervalMs = 0L
                 if (now > musicActiveUntil) musicActiveUntil = 0L
             }
             val strongTransient = rms > threshold * STRONG_BEAT_MULTIPLIER
@@ -133,19 +137,30 @@ class BeatDetector(
             ) {
                 val interval = if (lastCandidateAt > 0L) now - lastCandidateAt else Long.MAX_VALUE
                 val rhythmic = interval in RHYTHM_INTERVAL_MIN_MS..RHYTHM_INTERVAL_MAX_MS
+                val tempoStable = rhythmic &&
+                    (lastIntervalMs == 0L ||
+                        interval in (lastIntervalMs * TEMPO_STABILITY_MIN).toLong()..
+                            (lastIntervalMs * TEMPO_STABILITY_MAX).toLong())
                 rhythmicHits = if (rhythmic) rhythmicHits + 1 else 1
+                stableTempoHits = when {
+                    tempoStable -> stableTempoHits + 1
+                    rhythmic -> 1
+                    else -> 0
+                }
                 rhythmConfidence = if (rhythmic) {
                     (rhythmConfidence + RHYTHM_CONFIDENCE_STEP).coerceAtMost(1f)
                 } else {
                     (rhythmConfidence * OFF_RHYTHM_PENALTY).coerceAtLeast(0f)
                 }
+                if (rhythmic) lastIntervalMs = interval
                 lastCandidateAt = now
 
                 val gateAllows = !gate.enabled || gate.allowsBeat(now)
                 val gateStrong = !gate.enabled || gate.stronglyAllowsBeat(now)
                 val musicArmed = rhythmicHits >= MIN_RHYTHMIC_HITS &&
+                    stableTempoHits >= MIN_STABLE_TEMPO_HITS &&
                     rhythmConfidence >= MUSIC_ARM_CONFIDENCE &&
-                    gateAllows
+                    gateStrong
                 if (musicArmed) musicActiveUntil = now + MUSIC_HOLD_MS
 
                 if (musicArmed || (now < musicActiveUntil && gateAllows)) {
@@ -156,30 +171,23 @@ class BeatDetector(
                             (0.58f + 0.27f * rhythmConfidence + 0.15f * gateConfidence)
                     onBeat(strength.coerceIn(0.18f, 1f))
                     onStatus(
-                        "beat: groove ${(strength * 100f).toInt()}%  music ${(gateConfidence * 100f).toInt()}%"
-                    )
-                } else if (gateStrong && rhythmicHits >= 1 && now - lastStatusAt > STATUS_INTERVAL_MS / 2) {
-                    lastBeatAt = now
-                    val strength =
-                        ((((rms / threshold) - 1f) * 0.50f) + ((rise / riseThreshold) * 0.35f))
-                            .coerceIn(0.14f, 0.48f) * (0.65f + 0.35f * gateConfidence)
-                    onBeat(strength.coerceIn(0.14f, 0.48f))
-                    onStatus(
-                        "beat: soft ${(strength * 100f).toInt()}%  music ${(gateConfidence * 100f).toInt()}%"
+                        "beat: groove ${(strength * 100f).toInt()}%  music ${(gateConfidence * 100f).toInt()}%  noise ${(gate.interference() * 100f).toInt()}%"
                     )
                 } else if (now - lastStatusAt > STATUS_INTERVAL_MS / 2) {
                     lastStatusAt = now
                     val gateStatus = if (gate.enabled) {
-                        "music ${(gateConfidence * 100f).toInt()}%"
+                        "music ${(gateConfidence * 100f).toInt()}%  noise ${(gate.interference() * 100f).toInt()}%"
                     } else {
                         "music gate off"
                     }
-                    onStatus("beat: heard sound, waiting (${rhythmicHits}/${MIN_RHYTHMIC_HITS})  $gateStatus")
+                    onStatus(
+                        "beat: heard sound, waiting (${rhythmicHits}/${MIN_RHYTHMIC_HITS}, tempo ${stableTempoHits}/${MIN_STABLE_TEMPO_HITS})  $gateStatus"
+                    )
                 }
             } else if (now - lastStatusAt > STATUS_INTERVAL_MS) {
                 lastStatusAt = now
                 val gateStatus = if (gate.enabled) {
-                    "music ${(gateConfidence * 100f).toInt()}%"
+                    "music ${(gateConfidence * 100f).toInt()}%  noise ${(gate.interference() * 100f).toInt()}%"
                 } else {
                     "music gate off"
                 }
@@ -208,10 +216,13 @@ class BeatDetector(
         private const val RHYTHM_INTERVAL_MIN_MS = 280L
         private const val RHYTHM_INTERVAL_MAX_MS = 950L
         private const val RHYTHM_MEMORY_MS = 1_800L
-        private const val MIN_RHYTHMIC_HITS = 2
-        private const val RHYTHM_CONFIDENCE_STEP = 0.46f
-        private const val MUSIC_ARM_CONFIDENCE = 0.52f
+        private const val MIN_RHYTHMIC_HITS = 3
+        private const val MIN_STABLE_TEMPO_HITS = 2
+        private const val RHYTHM_CONFIDENCE_STEP = 0.34f
+        private const val MUSIC_ARM_CONFIDENCE = 0.58f
         private const val OFF_RHYTHM_PENALTY = 0.55f
         private const val MUSIC_HOLD_MS = 2_600L
+        private const val TEMPO_STABILITY_MIN = 0.78
+        private const val TEMPO_STABILITY_MAX = 1.22
     }
 }

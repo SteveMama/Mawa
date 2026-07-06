@@ -186,6 +186,9 @@ class AnimationEngine {
 
     fun visualEnergy(): Float = maxOf(grooveLevel, activeCloudAnimation()?.energy ?: 0f)
 
+    fun expressivenessLevel(): Float =
+        maxOf(grooveLevel * 0.72f, activeCloudAnimation()?.expressiveness ?: 0f)
+
     fun auraLevel(): Float = maxOf(grooveLevel * 0.85f, activeCloudAnimation()?.aura ?: 0f)
 
     fun barLevel(): Float = maxOf(grooveLevel, activeCloudAnimation()?.bars ?: 0f)
@@ -207,6 +210,7 @@ class AnimationEngine {
         grooveLevel = maxOf(grooveLevel, beatPulse * 0.92f)
         grooveLevel = (grooveLevel - dtSec * 0.68f).coerceAtLeast(0f)
         val visualEnergy = maxOf(grooveLevel, cloud?.energy ?: 0f)
+        val expressiveness = expressivenessLevel()
 
         // Sleep when the room goes dark, or after 10 min without a face.
         sleeping = ambientDark || (now - faceLastSeenAt > SLEEP_AFTER_MS)
@@ -232,6 +236,8 @@ class AnimationEngine {
             .coerceIn(0f, 1.1f)
         opennessTarget = (opennessTarget + visualEnergy * 0.09f * (0.5f + 0.5f *
             sin(clock * 2.0 * Math.PI * 2.6).toFloat())).coerceIn(0f, 1.1f)
+        opennessTarget = (opennessTarget + expressiveness * 0.05f * sin(clock * 2.0 * Math.PI * 0.55).toFloat())
+            .coerceIn(0f, 1.1f)
         if (!sleeping) {
             val breath = sin(clock * 2.0 * Math.PI * BREATH_HZ).toFloat()
             opennessTarget = (opennessTarget * (1f + 0.028f * breath)).coerceIn(0f, 1.1f)
@@ -266,28 +272,36 @@ class AnimationEngine {
         // Hand over the lens -> close politely. Distinct from sleep: no ZZZ.
         if (covered && !sleeping) { leftOpen = 0f; rightOpen = 0f }
 
+        val expressionWave = sin(clock * 2.0 * Math.PI * 0.37).toFloat() * expressiveness
+        val expressionLift = sin(clock * 2.0 * Math.PI * 0.71 + 1.1).toFloat() * expressiveness
+        leftOpen = (leftOpen + expressionWave * 0.045f + beatPulse * 0.018f).coerceIn(0f, 1.12f)
+        rightOpen = (rightOpen - expressionWave * 0.038f + beatPulse * 0.012f).coerceIn(0f, 1.12f)
+        val leftLidTarget = lidTarget + expressionWave * 5.5f + expressionLift * 2.2f
+        val rightLidTarget = -lidTarget + expressionWave * 3.8f - expressionLift * 2.0f
+
         // Independent ocular tremor keeps fixations alive without reading as jitter.
         tremorClock += dtSec
-        val tremorAmp = if (sleeping) 0f else TREMOR_AMP * (0.6f + 0.4f * visualEnergy)
+        val tremorAmp = if (sleeping) 0f else TREMOR_AMP * (0.55f + 0.35f * visualEnergy + 0.45f * expressiveness)
         val tLX = sin(tremorClock * 41f).toFloat() * tremorAmp + (Random.nextFloat() - 0.5f) * tremorAmp * 0.5f
         val tRX = sin(tremorClock * 37f + 1.7f).toFloat() * tremorAmp + (Random.nextFloat() - 0.5f) * tremorAmp * 0.5f
         val tLY = sin(tremorClock * 29f + 0.6f).toFloat() * tremorAmp
         val tRY = sin(tremorClock * 33f + 2.3f).toFloat() * tremorAmp
 
-        applyTo(left, leftOpen, gazeX + vergence + tLX, gazeY + tLY, pupilTarget, lidTarget, dtSec, styleMood)
-        applyTo(right, rightOpen, gazeX - vergence + tRX, gazeY + tRY, pupilTarget, -lidTarget, dtSec, styleMood)
+        applyTo(left, leftOpen, gazeX + vergence + tLX, gazeY + tLY, pupilTarget, leftLidTarget, dtSec, styleMood, expressiveness, -1f)
+        applyTo(right, rightOpen, gazeX - vergence + tRX, gazeY + tRY, pupilTarget, rightLidTarget, dtSec, styleMood, expressiveness, 1f)
 
         // Burn-in drift: whole face wanders +-12 px over a ~10 min cycle
         val slowDriftX = (12.0 * sin(clock * 2.0 * Math.PI / 600.0)).toFloat()
         val slowDriftY = (12.0 * sin(clock * 2.0 * Math.PI / 470.0 + 1.3)).toFloat()
         val swayLevel = maxOf(grooveLevel, cloud?.sway ?: 0f)
         val bounceLevel = maxOf(grooveLevel, cloud?.bounce ?: 0f)
-        val grooveSway = sin(clock * 2.0 * Math.PI * 1.8).toFloat() * 8f * swayLevel
+        val grooveSway = sin(clock * 2.0 * Math.PI * (1.2 + expressiveness * 1.4)).toFloat() * 8f * swayLevel
         val grooveBounce = (0.4f + 0.6f * sin(clock * 2.0 * Math.PI * 3.2).toFloat()) *
             16f * bounceLevel
+        val theatricalLean = sin(clock * 2.0 * Math.PI * 0.23 + 0.8).toFloat() * 6f * expressiveness
         // A gentle breathing bob so the whole face rises and falls when at rest.
         val breathBob = if (sleeping) 0f else sin(clock * 2.0 * Math.PI * BREATH_HZ).toFloat() * 3.5f
-        driftX = slowDriftX + grooveSway
+        driftX = slowDriftX + grooveSway + theatricalLean
         driftY = slowDriftY - 12f * beatPulse - grooveBounce + breathBob
     }
 
@@ -422,6 +436,8 @@ class AnimationEngine {
         lidAngle: Float,
         dt: Float,
         activeMood: Mood,
+        expressiveness: Float,
+        eyeBias: Float,
     ) {
         // Openness is already shaped by the crisp blink curve — snap it so blinks
         // stay sharp. Pupil position is already spring-smoothed. Styling eases.
@@ -431,7 +447,8 @@ class AnimationEngine {
         eye.pupilY = pupilY.coerceIn(-1.2f, 1.2f)
         eye.pupilScale += (pupilScale - eye.pupilScale) * slow
         eye.lidAngle += (lidAngle - eye.lidAngle) * slow
-        eye.squash += (activeMood.squash - eye.squash) * slow
+        val squashTarget = (activeMood.squash - expressiveness * 0.09f * eyeBias).coerceIn(0.76f, 1.06f)
+        eye.squash += (squashTarget - eye.squash) * slow
     }
 
     companion object {

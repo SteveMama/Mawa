@@ -23,6 +23,7 @@ class MusicGate(
     private var bufferedSamples = 0
     private var lastAnalysisAt = 0L
     private var musicConfidence = 0f
+    private var interferenceConfidence = 0f
     private var musicArmedUntil = 0L
 
     val enabled: Boolean
@@ -92,21 +93,31 @@ class MusicGate(
         }
 
         val instantaneous = (positive - negative * NEGATIVE_WEIGHT).coerceIn(0f, 1f)
+        val interference = negative.coerceIn(0f, 1f)
         musicConfidence = (musicConfidence * CONFIDENCE_DECAY + instantaneous * (1f - CONFIDENCE_DECAY))
             .coerceIn(0f, 1f)
-        if (instantaneous >= ARM_THRESHOLD || musicConfidence >= ARM_THRESHOLD) {
+        interferenceConfidence =
+            (interferenceConfidence * INTERFERENCE_DECAY + interference * (1f - INTERFERENCE_DECAY))
+                .coerceIn(0f, 1f)
+        if ((instantaneous >= ARM_THRESHOLD || musicConfidence >= ARM_THRESHOLD) &&
+            musicConfidence >= interferenceConfidence + HARD_MARGIN
+        ) {
             musicArmedUntil = nowMs + ARM_HOLD_MS
         }
         return musicConfidence
     }
 
     fun allowsBeat(nowMs: Long): Boolean = enabled &&
-        (musicConfidence >= SOFT_THRESHOLD || nowMs < musicArmedUntil)
+        (musicConfidence >= SOFT_THRESHOLD || nowMs < musicArmedUntil) &&
+        musicConfidence >= interferenceConfidence + SOFT_MARGIN
 
     fun stronglyAllowsBeat(nowMs: Long): Boolean = enabled &&
-        (musicConfidence >= ARM_THRESHOLD || nowMs < musicArmedUntil)
+        (musicConfidence >= ARM_THRESHOLD || nowMs < musicArmedUntil) &&
+        musicConfidence >= interferenceConfidence + HARD_MARGIN
 
     fun confidence(): Float = musicConfidence
+
+    fun interference(): Float = interferenceConfidence
 
     fun close() {
         try {
@@ -127,9 +138,12 @@ class MusicGate(
         private const val SOFT_THRESHOLD = 0.26f
         private const val ARM_THRESHOLD = 0.38f
         private const val CONFIDENCE_DECAY = 0.52f
+        private const val INTERFERENCE_DECAY = 0.58f
         private const val SCORE_THRESHOLD = 0.06f
         private const val MAX_RESULTS = 12
         private const val NEGATIVE_WEIGHT = 0.55f
+        private const val SOFT_MARGIN = 0.08f
+        private const val HARD_MARGIN = 0.16f
 
         private val MUSIC_KEYWORDS = listOf(
             "music", "singing", "choir", "chant", "drum", "snare", "bass drum",
