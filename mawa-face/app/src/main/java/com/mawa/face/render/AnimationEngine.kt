@@ -242,7 +242,7 @@ class AnimationEngine {
         sleeping -> mood
         now < intruderUntil -> Mood.SUSPICIOUS
         cloudMood != null && !ambientDark && !covered -> cloudMood!!
-        grooveLevel > 0.16f && !covered -> Mood.EXCITED
+        grooveLevel > 0.30f && !covered -> Mood.EXCITED
         else -> mood
     }
 

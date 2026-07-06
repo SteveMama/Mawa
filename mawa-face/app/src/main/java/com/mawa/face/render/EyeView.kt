@@ -159,7 +159,7 @@ class EyeView @JvmOverloads constructor(
     private fun drawMusicBackdrop(canvas: Canvas, cx: Float, cy: Float, eyeGap: Float, dt: Float) {
         val vibe = engine.musicLevel()
         val beat = engine.beatLevel()
-        if (vibe <= 0.01f && !engine.identityLockEnabled) return
+        if (vibe <= 0.10f && beat <= 0.18f && !engine.identityLockEnabled) return
 
         val pulseAlpha = (30 + 80 * vibe + 110 * beat).toInt().coerceIn(0, 180)
         auraPaint.color = Color.argb(pulseAlpha, 75, 116, 165)
@@ -215,7 +215,7 @@ class EyeView @JvmOverloads constructor(
 
     private fun updateAndDrawMusicGlyphs(canvas: Canvas, cx: Float, cy: Float, dt: Float) {
         val vibe = engine.musicLevel()
-        if (vibe > 0.12f) {
+        if (vibe > 0.24f) {
             val spawnRate = 1.6f + vibe * 7f + engine.beatLevel() * 6f
             glyphSpawnAccumulator += dt * spawnRate
             while (glyphSpawnAccumulator >= 1f) {
