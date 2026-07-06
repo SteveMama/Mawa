@@ -17,8 +17,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts.RequestPermission
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import com.mawa.face.audio.MusicTasteProfile
 import com.mawa.face.audio.Speech
 import com.mawa.face.audio.BeatDetector
+import com.mawa.face.net.LiveTelemetryClient
 import com.mawa.face.net.SceneManifestClient
 import com.mawa.face.render.EyeView
 import com.mawa.face.render.Gesture
@@ -32,19 +34,26 @@ import com.mawa.face.vision.FaceRecognizer
 import com.mawa.face.vision.FaceTracker
 import com.mawa.face.vision.GazeMapper
 import com.mawa.face.weather.WeatherClient
+import java.text.SimpleDateFormat
 import java.util.Locale
+import java.util.TimeZone
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var eyeView: EyeView
     private lateinit var prefs: SharedPreferences
     private lateinit var faceGallery: FaceGallery
+    private lateinit var musicTaste: MusicTasteProfile
     private lateinit var speech: Speech
     private var beatDetector: BeatDetector? = null
     private var tracker: FaceTracker? = null
     private var lightSensor: LightSensor? = null
     private var recognizer: FaceRecognizer? = null
     private val manifestClient = SceneManifestClient(
+        BuildConfig.BRAIN_BASE_URL,
+        BuildConfig.DEVICE_TOKEN,
+    )
+    private val telemetryClient = LiveTelemetryClient(
         BuildConfig.BRAIN_BASE_URL,
         BuildConfig.DEVICE_TOKEN,
     )
@@ -82,6 +91,12 @@ class MainActivity : ComponentActivity() {
     private var latestObservedPersonId: String? = null
     private var latestObservedPersonLabel: String? = null
     private var latestObservedPersonSimilarity: Float? = null
+    private var latestTasteSnapshot = MusicTasteProfile.Snapshot()
+    private var currentManifestId: String? = null
+    private var currentThoughtEyebrow: String? = null
+    private var currentThoughtTitle: String? = null
+    private var currentThoughtDetail: String? = null
+    private var currentThoughtAccent: String? = null
 
     // Blink-back edge detection
     private var prevEyeOpen = 1f
@@ -152,11 +167,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val telemetryTick = object : Runnable {
+        override fun run() {
+            publishTelemetry()
+            handler.postDelayed(this, TELEMETRY_PUSH_MS)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         prefs = getSharedPreferences("mawa", MODE_PRIVATE)
         faceGallery = FaceGallery(prefs)
+        musicTaste = MusicTasteProfile(prefs)
         GazeMapper.load(prefs)
         speech = Speech(this)
         recognizer = FaceRecognizer(this)
@@ -198,6 +221,7 @@ class MainActivity : ComponentActivity() {
         handler.post(updateCheck)
         handler.post(ambientTick)
         handler.post(sceneTick)
+        handler.post(telemetryTick)
     }
 
     override fun onResume() {
@@ -225,11 +249,28 @@ class MainActivity : ComponentActivity() {
                     eyeView.scenePanels = snapshot.panels
                     eyeView.cloudAnimation = snapshot.animation
                     eyeView.engine.cloudMood = snapshot.mood
+                    currentManifestId = snapshot.manifestId
+                    snapshot.panels.firstOrNull { it.id == "mawa-thought" }?.let { panel ->
+                        currentThoughtEyebrow = panel.eyebrow
+                        currentThoughtTitle = panel.title
+                        currentThoughtDetail = panel.detail
+                        currentThoughtAccent = panel.accent
+                    } ?: run {
+                        currentThoughtEyebrow = null
+                        currentThoughtTitle = null
+                        currentThoughtDetail = null
+                        currentThoughtAccent = null
+                    }
                     scenePollMs = (snapshot.pollAfterSeconds * 1000L).coerceIn(60_000L, 10 * 60_000L)
                     brainStatus = "brain: online  ${snapshot.manifestId}"
                 }.onFailure { error ->
                     eyeView.cloudAnimation = null
                     eyeView.engine.cloudMood = null
+                    currentManifestId = null
+                    currentThoughtEyebrow = null
+                    currentThoughtTitle = null
+                    currentThoughtDetail = null
+                    currentThoughtAccent = null
                     scenePollMs = SCENE_CHECK_MS
                     brainStatus = "brain: offline (${error.message ?: "unavailable"})"
                     refreshLocalWeather(lat, lon)
@@ -391,15 +432,18 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun currentPresenceSnapshot(): SceneManifestClient.PresenceSnapshot {
+        val now = SystemClock.elapsedRealtime()
         val recognized = when {
             latestFaceCount <= 0 -> "none"
             recognizedIsMe -> "me"
             identityLockActive() -> "other"
             else -> "unknown"
         }
+        val following = latestFaceCount > 0 && shouldFollowCurrentFace(now)
         val groove = beatDetector?.let {
             eyeView.engine.musicLevel().coerceIn(0f, 1f)
         } ?: 0f
+        latestTasteSnapshot = musicTaste.observe(groove, now)
         return SceneManifestClient.PresenceSnapshot(
             faceCount = latestFaceCount,
             recognized = recognized,
@@ -409,8 +453,109 @@ class MainActivity : ComponentActivity() {
             ambientDark = eyeView.engine.ambientDark,
             musicActive = groove >= 0.18f,
             groove = groove,
+            identityLock = identityLockActive(),
+            following = following,
+            musicTasteProfile = latestTasteSnapshot.profileLabel,
+            musicEnjoyment = latestTasteSnapshot.enjoyment,
+            musicAffinity = latestTasteSnapshot.affinity,
+            musicSteadiness = latestTasteSnapshot.steadiness,
         )
     }
+
+    private fun publishTelemetry() {
+        if (!telemetryClient.enabled) return
+        val presence = currentPresenceSnapshot()
+        val currentMood = eyeView.engine.currentMood()
+        val groove = eyeView.engine.musicLevel().coerceIn(0f, 1f)
+        val attention = when {
+            eyeView.engine.covered -> "covered"
+            eyeView.engine.isSleeping() -> "sleeping"
+            presence.identityLock && recognizedIsMe && presence.following -> "locked-on-you"
+            presence.identityLock && latestFaceCount > 0 && !presence.following -> "guarded"
+            latestFaceCount > 0 && presence.following -> "engaged"
+            latestFaceCount > 0 -> "checking"
+            else -> "wandering"
+        }
+
+        telemetryClient.publish(
+            LiveTelemetryClient.TelemetrySnapshot(
+                deviceId = "oneplus-wall",
+                appVersion = BuildConfig.VERSION_CODE.toString(),
+                manifestId = currentManifestId,
+                capturedAt = isoTimestamp(),
+                thought = if (!currentThoughtTitle.isNullOrBlank()) {
+                    LiveTelemetryClient.ThoughtSnapshot(
+                        eyebrow = currentThoughtEyebrow ?: "MAWA",
+                        title = currentThoughtTitle ?: "Quiet orbit",
+                        detail = currentThoughtDetail ?: "",
+                        accent = currentThoughtAccent ?: "#8FA6C0",
+                    )
+                } else {
+                    null
+                },
+                feeling = LiveTelemetryClient.FeelingSnapshot(
+                    mood = currentMood,
+                    summary = feelingSummary(currentMood, attention, groove, latestTasteSnapshot),
+                    attention = attention,
+                    sleeping = eyeView.engine.isSleeping(),
+                    covered = eyeView.engine.covered,
+                    ambientDark = eyeView.engine.ambientDark,
+                    energy = eyeView.engine.visualEnergy().coerceIn(0f, 1f),
+                    expressiveness = eyeView.engine.expressivenessLevel().coerceIn(0f, 1f),
+                ),
+                presence = LiveTelemetryClient.PresenceSnapshot(
+                    faceCount = presence.faceCount,
+                    recognized = presence.recognized,
+                    personLabel = presence.personLabel,
+                    proximity = presence.proximity,
+                    identityLock = presence.identityLock,
+                    following = presence.following,
+                ),
+                music = LiveTelemetryClient.MusicSnapshot(
+                    active = presence.musicActive,
+                    groove = groove,
+                    tasteProfile = latestTasteSnapshot.profileLabel,
+                    stance = latestTasteSnapshot.stance,
+                    enjoyment = latestTasteSnapshot.enjoyment,
+                    affinity = latestTasteSnapshot.affinity,
+                    preferredIntensity = latestTasteSnapshot.preferredIntensity,
+                    steadiness = latestTasteSnapshot.steadiness,
+                    lateNightBias = latestTasteSnapshot.lateNightBias,
+                    sessionCount = latestTasteSnapshot.sessionCount,
+                    beatStatus = beatStatus,
+                ),
+                status = LiveTelemetryClient.StatusSnapshot(
+                    camera = camStatus,
+                    brain = brainStatus,
+                    beat = beatStatus,
+                    face = faceLine,
+                ),
+            )
+        )
+    }
+
+    private fun feelingSummary(
+        mood: Mood,
+        attention: String,
+        groove: Float,
+        taste: MusicTasteProfile.Snapshot,
+    ): String = when {
+        attention == "covered" -> "Eyes closed politely."
+        attention == "sleeping" -> "Dim and drifting."
+        groove >= 0.22f && taste.enjoyment >= 0.76f -> "Caught in the groove."
+        groove >= 0.22f && taste.enjoyment >= 0.58f -> "Leaning into the music."
+        attention == "locked-on-you" -> "Locked on you and steady."
+        attention == "guarded" -> "Present, but keeping some distance."
+        mood == Mood.SUSPICIOUS -> "Something about the room feels off."
+        mood == Mood.EXCITED -> "The room feels charged."
+        mood == Mood.SLEEPY -> "Holding the room softly."
+        else -> "Quietly keeping the room."
+    }
+
+    private fun isoTimestamp(): String =
+        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }.format(java.util.Date())
 
     private fun recognitionSummary(): String {
         val gallery = latestObservedPersonId?.let { id ->
@@ -580,6 +725,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val UPDATE_CHECK_MS = 15 * 60 * 1000L
         private const val SCENE_CHECK_MS = 5 * 60 * 1000L
+        private const val TELEMETRY_PUSH_MS = 12_000L
         private const val GREET_GAP_MS = 30 * 60 * 1000L
         private const val DARK_LUX = 6f
         private const val COVERED_LUMA = 12f

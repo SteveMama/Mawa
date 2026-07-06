@@ -348,9 +348,29 @@ function describeRoom(room: RoomContext): string {
       if (perception.proximity >= 0.22) {
         parts.push("Someone is quite close to the wall.");
       }
+      if (perception.identityLock) {
+        parts.push(
+          perception.following
+            ? "You are actively following the chosen person."
+            : "Identity lock is engaged, but you are keeping some distance.",
+        );
+      }
+    }
+    if (perception.musicTasteProfile) {
+      parts.push(`Your recent music taste reads as ${perception.musicTasteProfile}.`);
     }
     if (perception.musicActive || perception.groove >= 0.18) {
       parts.push(`There is music or a steady groove in the room at intensity ${perception.groove.toFixed(2)}.`);
+      if (perception.musicEnjoyment >= 0.72) {
+        parts.push("You seem genuinely taken with it.");
+      } else if (perception.musicEnjoyment >= 0.5) {
+        parts.push("You seem interested, but selective.");
+      } else {
+        parts.push("You seem unconvinced by what you're hearing.");
+      }
+      if (perception.musicSteadiness >= 0.65) {
+        parts.push("The groove is steady rather than chaotic.");
+      }
     }
   }
   return parts.join(" ");

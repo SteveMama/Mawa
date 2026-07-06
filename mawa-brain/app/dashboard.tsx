@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { LiveDeviceState } from "../lib/live-state";
 import type { SceneManifest } from "../lib/manifest";
 
 const DEFAULT_LOCATION = { latitude: 42.3601, longitude: -71.0589 };
@@ -13,10 +14,17 @@ interface CompanionStatusResponse {
   adminAuthorized: boolean;
 }
 
+interface LiveStateResponse {
+  live: LiveDeviceState | null;
+  adminAuthorized: boolean;
+}
+
 export function Dashboard() {
   const [manifest, setManifest] = useState<SceneManifest | null>(null);
   const [companionStatus, setCompanionStatus] = useState<CompanionStatusResponse | null>(null);
+  const [liveState, setLiveState] = useState<LiveDeviceState | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [liveError, setLiveError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [adminToken, setAdminToken] = useState("");
@@ -55,12 +63,33 @@ export function Dashboard() {
     setCompanionStatus((await response.json()) as CompanionStatusResponse);
   }, [authHeaders]);
 
+  const loadLiveState = useCallback(async () => {
+    try {
+      const response = await fetch("/api/device/telemetry", {
+        cache: "no-store",
+        headers: authHeaders(),
+      });
+      const payload = (await response.json()) as { error?: string } & Partial<LiveStateResponse>;
+      if (!response.ok) throw new Error(payload.error || `Live state returned ${response.status}`);
+      setLiveState(payload.live ?? null);
+      setLiveError(null);
+    } catch (cause) {
+      setLiveState(null);
+      setLiveError(cause instanceof Error ? cause.message : "Could not load live device state");
+    }
+  }, [authHeaders]);
+
   useEffect(() => {
     load();
     loadCompanionStatus().catch((cause) => {
       setError(cause instanceof Error ? cause.message : "Could not load companion status");
     });
-  }, [load, loadCompanionStatus]);
+    loadLiveState().catch(() => {});
+    const interval = window.setInterval(() => {
+      loadLiveState().catch(() => {});
+    }, 5_000);
+    return () => window.clearInterval(interval);
+  }, [load, loadCompanionStatus, loadLiveState]);
 
   function useMyLocation() {
     if (!navigator.geolocation) return;
@@ -91,6 +120,15 @@ export function Dashboard() {
     }
   }
 
+  const liveAgeMs =
+    liveState?.capturedAt ? Date.now() - new Date(liveState.capturedAt).getTime() : Number.POSITIVE_INFINITY;
+  const liveOnline = Number.isFinite(liveAgeMs) && liveAgeMs < 25_000;
+  const liveSeen =
+    !liveState?.capturedAt ? "No device telemetry yet" :
+    liveAgeMs < 5_000 ? "just now" :
+    liveAgeMs < 60_000 ? `${Math.round(liveAgeMs / 1000)}s ago` :
+    `${Math.round(liveAgeMs / 60_000)}m ago`;
+
   return (
     <main>
       <header className="hero">
@@ -116,6 +154,79 @@ export function Dashboard() {
           <button onClick={useMyLocation}>Use my location</button>
           <button onClick={() => load()}>Refresh</button>
         </div>
+      </section>
+
+      <section className="live-board">
+        <article className="card live-card">
+          <div className="live-head">
+            <div>
+              <p className="eyebrow">LIVE WALL STATE</p>
+              <h2>{liveState?.feeling.mood ?? "Waiting"}</h2>
+              <p>
+                {liveState
+                  ? `${liveState.feeling.summary} · ${liveState.feeling.attention}`
+                  : liveError ?? "Waiting for the wall phone to report in."}
+              </p>
+            </div>
+            <div className="live-meta">
+              <span className={`dot ${liveOnline ? "" : "planned"}`} />
+              <strong>{liveOnline ? "Live" : "Idle"}</strong>
+              <small>{liveSeen}</small>
+            </div>
+          </div>
+
+          {liveState?.thought ? (
+            <div className="live-thought" style={{ borderColor: liveState.thought.accent }}>
+              <small>{liveState.thought.eyebrow}</small>
+              <strong>{liveState.thought.title}</strong>
+              <span>{liveState.thought.detail}</span>
+            </div>
+          ) : null}
+
+          <div className="live-stats">
+            <div>
+              <small>Presence</small>
+              <strong>
+                {liveState
+                  ? `${liveState.presence.faceCount} face${liveState.presence.faceCount === 1 ? "" : "s"}`
+                  : "—"}
+              </strong>
+              <span>
+                {liveState?.presence.personLabel
+                  ? liveState.presence.personLabel
+                  : liveState?.presence.recognized ?? "—"}
+              </span>
+            </div>
+            <div>
+              <small>Music</small>
+              <strong>{liveState ? `${Math.round(liveState.music.groove * 100)}% groove` : "—"}</strong>
+              <span>{liveState?.music.stance ?? liveState?.music.tasteProfile ?? "quiet"}</span>
+            </div>
+            <div>
+              <small>Energy</small>
+              <strong>{liveState ? `${Math.round(liveState.feeling.energy * 100)}%` : "—"}</strong>
+              <span>{liveState ? `${Math.round(liveState.feeling.expressiveness * 100)}% expressive` : "—"}</span>
+            </div>
+            <div>
+              <small>Taste memory</small>
+              <strong>{liveState?.music.tasteProfile ?? "not learned yet"}</strong>
+              <span>
+                {liveState
+                  ? `${liveState.music.sessionCount} sessions · affinity ${Math.round(liveState.music.affinity * 100)}%`
+                  : "—"}
+              </span>
+            </div>
+          </div>
+
+          {liveState ? (
+            <div className="live-debug">
+              <div className="live-debug-line"><small>Camera</small><span>{liveState.status.camera}</span></div>
+              <div className="live-debug-line"><small>Brain</small><span>{liveState.status.brain}</span></div>
+              <div className="live-debug-line"><small>Beat</small><span>{liveState.status.beat}</span></div>
+              <div className="live-debug-line"><small>Face</small><span>{liveState.status.face}</span></div>
+            </div>
+          ) : null}
+        </article>
       </section>
 
       <section className="grid">
@@ -190,7 +301,10 @@ export function Dashboard() {
                 type="password"
                 value={adminToken}
                 onChange={(event) => setAdminToken(event.target.value)}
-                onBlur={() => loadCompanionStatus().catch(() => {})}
+                onBlur={() => {
+                  loadCompanionStatus().catch(() => {});
+                  loadLiveState().catch(() => {});
+                }}
                 placeholder="Dashboard admin token (optional)"
               />
               <textarea
@@ -208,6 +322,11 @@ export function Dashboard() {
             {companionStatus && !companionStatus.adminAuthorized ? (
               <p className="auth-warning">
                 Enter the admin token above to unlock the companion tester in this browser.
+              </p>
+            ) : null}
+            {liveError === "provide the dashboard admin token" ? (
+              <p className="auth-warning">
+                Enter the admin token above to unlock the live wall feed in this browser.
               </p>
             ) : null}
             {companionReply ? <p className="companion-reply">{companionReply}</p> : null}

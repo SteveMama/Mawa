@@ -45,6 +45,12 @@ class SceneManifestClient(
         val ambientDark: Boolean = false,
         val musicActive: Boolean = false,
         val groove: Float = 0f,
+        val identityLock: Boolean = false,
+        val following: Boolean = false,
+        val musicTasteProfile: String? = null,
+        val musicEnjoyment: Float = 0f,
+        val musicAffinity: Float = 0f,
+        val musicSteadiness: Float = 0f,
     )
 
     val enabled: Boolean get() = baseUrl.startsWith("https://") || baseUrl.startsWith("http://")
@@ -71,6 +77,9 @@ class SceneManifestClient(
                 val personLabel = presence.personLabel?.take(40)?.let {
                     URLEncoder.encode(it, "UTF-8")
                 } ?: ""
+                val tasteProfile = presence.musicTasteProfile?.take(64)?.let {
+                    URLEncoder.encode(it, "UTF-8")
+                } ?: ""
                 val url = URL(
                     "$baseUrl/api/manifest?lat=$lat&lon=$lon" +
                         "&device=oneplus-wall&version=$appVersion" +
@@ -81,7 +90,13 @@ class SceneManifestClient(
                         "&covered=${if (presence.covered) 1 else 0}" +
                         "&dark=${if (presence.ambientDark) 1 else 0}" +
                         "&music=${if (presence.musicActive) 1 else 0}" +
-                        "&groove=$groove"
+                        "&groove=$groove" +
+                        "&lock=${if (presence.identityLock) 1 else 0}" +
+                        "&follow=${if (presence.following) 1 else 0}" +
+                        "&taste=$tasteProfile" +
+                        "&enjoy=${String.format(Locale.US, "%.3f", presence.musicEnjoyment.coerceIn(0f, 1f))}" +
+                        "&affinity=${String.format(Locale.US, "%.3f", presence.musicAffinity.coerceIn(0f, 1f))}" +
+                        "&steady=${String.format(Locale.US, "%.3f", presence.musicSteadiness.coerceIn(0f, 1f))}"
                 )
                 connection = url.openConnection() as HttpURLConnection
                 connection.connectTimeout = CONNECT_TIMEOUT_MS

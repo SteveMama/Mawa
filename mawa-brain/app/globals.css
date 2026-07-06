@@ -40,6 +40,21 @@ h1 { font-family: Georgia, serif; font-weight: 400; font-size: clamp(44px, 7vw, 
 button { border: 1px solid #343834; background: #151815; color: var(--ink); border-radius: 8px; padding: 8px 12px; cursor: pointer; }
 button:hover { border-color: #687068; }
 
+.live-board { border: 1px solid var(--line); border-top: 0; background: rgba(10,12,10,.96); }
+.live-card { min-height: 0; padding: 28px 32px; }
+.live-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
+.live-meta { min-width: 140px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.02); display: grid; gap: 4px; justify-items: start; }
+.live-meta small { color: var(--muted); }
+.live-thought { margin-top: 20px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 14px; display: grid; gap: 6px; background: rgba(182,217,242,.04); }
+.live-thought small { color: var(--green); font-size: 11px; letter-spacing: .14em; }
+.live-thought span { color: var(--muted); }
+.live-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-top: 20px; }
+.live-stats > div { padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.02); display: grid; gap: 6px; }
+.live-stats small, .live-debug small { color: var(--muted); text-transform: uppercase; letter-spacing: .08em; font-size: 10px; }
+.live-stats span, .live-debug span { color: var(--muted); line-height: 1.5; }
+.live-debug { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 20px; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--line); }
+.live-debug-line { display: grid; gap: 4px; }
+
 .grid { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-top: 0; }
 .card { min-height: 430px; padding: 32px; overflow: hidden; }
 .card + .card { border-left: 1px solid var(--line); }
@@ -86,6 +101,8 @@ footer { display: flex; justify-content: space-between; color: #5f655f; font-siz
   main { width: min(100% - 24px, 600px); padding-top: 28px; }
   .hero { grid-template-columns: 1fr; gap: 30px; }
   .face { order: -1; }
+  .live-head { flex-direction: column; }
+  .live-stats, .live-debug { grid-template-columns: 1fr; }
   .grid { grid-template-columns: 1fr; }
   .card + .card { border-left: 0; border-top: 1px solid var(--line); }
   .toolbar, footer { align-items: flex-start; gap: 14px; flex-direction: column; }

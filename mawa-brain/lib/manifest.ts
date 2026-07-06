@@ -94,6 +94,12 @@ export interface RoomContext {
     ambientDark: boolean;
     musicActive: boolean;
     groove: number;
+    identityLock: boolean;
+    following: boolean;
+    musicTasteProfile?: string;
+    musicEnjoyment: number;
+    musicAffinity: number;
+    musicSteadiness: number;
   };
 }
 

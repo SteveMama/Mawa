@@ -190,6 +190,10 @@ class AnimationEngine {
 
     fun beatLevel(): Float = beatPulse
 
+    fun currentMood(): Mood = activeMood(SystemClock.elapsedRealtime())
+
+    fun isSleeping(): Boolean = sleeping
+
     fun visualEnergy(): Float = maxOf(grooveLevel, activeCloudAnimation()?.energy ?: 0f)
 
     fun expressivenessLevel(): Float =

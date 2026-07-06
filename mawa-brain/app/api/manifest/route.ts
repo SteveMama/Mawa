@@ -62,6 +62,12 @@ export async function GET(request: NextRequest) {
       ambientDark: flag(request.nextUrl.searchParams.get("dark")),
       musicActive: flag(request.nextUrl.searchParams.get("music")),
       groove: unit(request.nextUrl.searchParams.get("groove")),
+      identityLock: flag(request.nextUrl.searchParams.get("lock")),
+      following: flag(request.nextUrl.searchParams.get("follow")),
+      musicTasteProfile: shortText(request.nextUrl.searchParams.get("taste"), 64),
+      musicEnjoyment: unit(request.nextUrl.searchParams.get("enjoy")),
+      musicAffinity: unit(request.nextUrl.searchParams.get("affinity")),
+      musicSteadiness: unit(request.nextUrl.searchParams.get("steady")),
     },
   });
 
