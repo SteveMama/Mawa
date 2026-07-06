@@ -23,8 +23,9 @@ android {
 
     defaultConfig {
         applicationId = "com.mawa.face"
-        // minSdk 21 (Android 5.0) is CameraX's floor — covers every OnePlus ever made
-        minSdk = 21
+        // MediaPipe Audio Tasks (used to gate beat reactions on real music) require SDK 24+.
+        // The wall target is Android 13, so we optimize for that actual deployment device.
+        minSdk = 24
         targetSdk = 35
         // CI run number = monotonically increasing version; the on-device
         // updater compares this against the published version.txt
@@ -90,4 +91,5 @@ dependencies {
     // On-device face recognition (embeddings). Dormant until a model is added
     // at app/src/main/assets/mobilefacenet.tflite.
     implementation("org.tensorflow:tensorflow-lite:2.14.0")
+    implementation("com.google.mediapipe:tasks-audio:0.10.29")
 }
