@@ -194,9 +194,11 @@ class MainActivity : ComponentActivity() {
                 result.onSuccess { snapshot ->
                     snapshot.weather?.let { eyeView.weather = it }
                     eyeView.scenePanels = snapshot.panels
+                    eyeView.cloudAnimation = snapshot.animation
                     eyeView.engine.cloudMood = snapshot.mood
                     brainStatus = "brain: online  ${snapshot.manifestId}"
                 }.onFailure { error ->
+                    eyeView.cloudAnimation = null
                     eyeView.engine.cloudMood = null
                     brainStatus = "brain: offline (${error.message ?: "unavailable"})"
                     refreshLocalWeather(lat, lon)

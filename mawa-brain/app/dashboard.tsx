@@ -176,6 +176,12 @@ export function Dashboard() {
               ? `${Math.round(manifest.scene.weather.temperatureC)}°C · mood ${manifest.scene.mood}`
               : "The first connector is waking up."}
           </p>
+          {manifest?.scene.animation ? (
+            <p>
+              {manifest.scene.animation.palette} palette · {manifest.scene.animation.gazeMode} gaze
+              {" · "}energy {manifest.scene.animation.energy.toFixed(2)}
+            </p>
+          ) : null}
           <div className="phone-preview">
             {manifest?.scene.panels.map((panel) => (
               <div className={`preview-panel ${panel.slot}`} key={panel.id}>

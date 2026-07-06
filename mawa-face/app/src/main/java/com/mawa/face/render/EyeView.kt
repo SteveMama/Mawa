@@ -38,6 +38,11 @@ class EyeView @JvmOverloads constructor(
     var weather: WeatherCondition = WeatherCondition.CLEAR
     var warmth = 0f
     var scenePanels: List<ScenePanel> = emptyList()
+    var cloudAnimation: CloudAnimation? = null
+        set(value) {
+            field = value
+            engine.cloudAnimation = value
+        }
 
     private var lastFrameNs = 0L
     private var zClock = 0f
@@ -157,18 +162,26 @@ class EyeView @JvmOverloads constructor(
     }
 
     private fun drawMusicBackdrop(canvas: Canvas, cx: Float, cy: Float, eyeGap: Float, dt: Float) {
-        val vibe = engine.musicLevel()
+        val auraLevel = engine.auraLevel()
+        val barLevel = engine.barLevel()
         val beat = engine.beatLevel()
-        if (vibe <= 0.10f && beat <= 0.18f && !engine.identityLockEnabled) return
+        if (auraLevel <= 0.08f && barLevel <= 0.08f && beat <= 0.18f && !engine.identityLockEnabled) return
 
-        val pulseAlpha = (30 + 80 * vibe + 110 * beat).toInt().coerceIn(0, 180)
-        auraPaint.color = Color.argb(pulseAlpha, 75, 116, 165)
-        val radius = width * (0.13f + 0.05f * vibe)
+        val palette = paletteColors(engine.palette())
+
+        val pulseAlpha = (26 + 110 * auraLevel + 90 * beat).toInt().coerceIn(0, 205)
+        auraPaint.color = Color.argb(pulseAlpha, Color.red(palette.primary), Color.green(palette.primary), Color.blue(palette.primary))
+        val radius = width * (0.13f + 0.07f * auraLevel)
         canvas.drawCircle(cx - eyeGap / 2f, cy, radius, auraPaint)
         canvas.drawCircle(cx + eyeGap / 2f, cy, radius, auraPaint)
 
-        auraPaint.color = Color.argb((18 + 32 * vibe).toInt().coerceIn(0, 70), 120, 200, 255)
-        canvas.drawCircle(cx, cy, width * (0.12f + 0.04f * vibe), auraPaint)
+        auraPaint.color = Color.argb(
+            (18 + 46 * auraLevel).toInt().coerceIn(0, 86),
+            Color.red(palette.secondary),
+            Color.green(palette.secondary),
+            Color.blue(palette.secondary),
+        )
+        canvas.drawCircle(cx, cy, width * (0.12f + 0.05f * auraLevel), auraPaint)
 
         val barCount = 9
         val barWidth = width * 0.012f
@@ -178,10 +191,11 @@ class EyeView @JvmOverloads constructor(
         val baseY = height * 0.91f
         for (index in 0 until barCount) {
             val phase = musicPhase * 3.7f + index * 0.55f
-            val heightFactor = (0.22f + 0.78f * vibe) *
+            val heightFactor = (0.22f + 0.78f * barLevel) *
                 (0.35f + 0.65f * (0.5f + 0.5f * sin(phase)))
             val barHeight = height * 0.08f * heightFactor
-            barPaint.alpha = (40 + 150 * vibe + 40 * beat).toInt().coerceIn(0, 220)
+            barPaint.color = palette.primary
+            barPaint.alpha = (24 + 170 * barLevel + 30 * beat).toInt().coerceIn(0, 225)
             val left = baseX + index * (barWidth + gap)
             canvas.drawRoundRect(
                 left,
@@ -199,7 +213,7 @@ class EyeView @JvmOverloads constructor(
 
     private fun drawFocusFrame(canvas: Canvas, cx: Float, cy: Float, eyeGap: Float) {
         if (!engine.identityLockEnabled || engine.sleeping) return
-        focusPaint.alpha = if (engine.musicLevel() > 0.08f) 170 else 110
+        focusPaint.alpha = if (engine.visualEnergy() > 0.14f) 170 else 110
         val bracketY = cy - height * 0.17f
         val bracketHeight = height * 0.34f
         val leftX = cx - eyeGap / 2f - width * 0.12f
@@ -214,9 +228,10 @@ class EyeView @JvmOverloads constructor(
     }
 
     private fun updateAndDrawMusicGlyphs(canvas: Canvas, cx: Float, cy: Float, dt: Float) {
-        val vibe = engine.musicLevel()
-        if (vibe > 0.24f) {
-            val spawnRate = 1.6f + vibe * 7f + engine.beatLevel() * 6f
+        val vibe = engine.glyphLevel()
+        val palette = paletteColors(engine.palette())
+        if (vibe > 0.18f) {
+            val spawnRate = 0.8f + vibe * 8f + engine.beatLevel() * 4f
             glyphSpawnAccumulator += dt * spawnRate
             while (glyphSpawnAccumulator >= 1f) {
                 glyphSpawnAccumulator -= 1f
@@ -238,6 +253,7 @@ class EyeView @JvmOverloads constructor(
             }
             val alpha = ((1f - glyph.age / glyph.ttl) * 220f).toInt().coerceIn(0, 220)
             musicPaint.alpha = alpha
+            musicPaint.color = palette.secondary
             musicPaint.textSize = glyph.size
             canvas.drawText(glyph.glyph, glyph.x, glyph.y, musicPaint)
         }
@@ -266,6 +282,31 @@ class EyeView @JvmOverloads constructor(
                 glyph = glyph,
                 size = height * (0.038f + vibe * 0.03f + Random.nextFloat() * 0.018f),
             )
+        )
+    }
+
+    private data class PaletteColors(val primary: Int, val secondary: Int)
+
+    private fun paletteColors(palette: CloudPalette): PaletteColors = when (palette) {
+        CloudPalette.WARM -> PaletteColors(
+            primary = Color.parseColor("#E9A25B"),
+            secondary = Color.parseColor("#FFD6A0"),
+        )
+        CloudPalette.VIOLET -> PaletteColors(
+            primary = Color.parseColor("#8E74E8"),
+            secondary = Color.parseColor("#D2C8FF"),
+        )
+        CloudPalette.TEAL -> PaletteColors(
+            primary = Color.parseColor("#53C7B7"),
+            secondary = Color.parseColor("#A8F1E8"),
+        )
+        CloudPalette.DUSK -> PaletteColors(
+            primary = Color.parseColor("#7E8BC9"),
+            secondary = Color.parseColor("#C8D0FF"),
+        )
+        CloudPalette.COOL -> PaletteColors(
+            primary = Color.parseColor("#5B83A6"),
+            secondary = Color.parseColor("#91C4E8"),
         )
     }
 

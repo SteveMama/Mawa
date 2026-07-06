@@ -14,17 +14,22 @@ export async function composeManifest(context: ManifestContext): Promise<SceneMa
     .map((output) => output.suggestedMood)
     .filter((value): value is NonNullable<typeof value> => !!value)
     .at(-1) ?? "neutral";
+  const animation = outputs
+    .map((output) => output.suggestedAnimation)
+    .filter((value): value is NonNullable<typeof value> => !!value)
+    .at(-1);
 
   return {
     schemaVersion: MANIFEST_SCHEMA_VERSION,
     manifestId: `mawa-${context.now.getTime()}`,
     generatedAt,
     expiresAt,
-    pollAfterSeconds: 300,
+    pollAfterSeconds: 180,
     scene: {
       mode: "ambient",
       mood,
       weather,
+      animation,
       panels: outputs.flatMap((output) => output.panels),
     },
     connectors: [...outputs.map((output) => output.state), ...plannedConnectors],

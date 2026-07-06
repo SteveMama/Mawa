@@ -50,6 +50,7 @@ class AnimationEngine {
 
     var mood: Mood = Mood.NEUTRAL
     var cloudMood: Mood? = null
+    var cloudAnimation: CloudAnimation? = null
     var identityLockEnabled = false
 
     // --- gaze -------------------------------------------------------------
@@ -140,14 +141,27 @@ class AnimationEngine {
 
     fun beatLevel(): Float = beatPulse
 
+    fun visualEnergy(): Float = maxOf(grooveLevel, activeCloudAnimation()?.energy ?: 0f)
+
+    fun auraLevel(): Float = maxOf(grooveLevel * 0.85f, activeCloudAnimation()?.aura ?: 0f)
+
+    fun barLevel(): Float = maxOf(grooveLevel, activeCloudAnimation()?.bars ?: 0f)
+
+    fun glyphLevel(): Float = maxOf(grooveLevel, activeCloudAnimation()?.glyphs ?: 0f)
+
+    fun palette(): CloudPalette = activeCloudAnimation()?.palette ?: CloudPalette.COOL
+
     fun update(dtSec: Float) {
         clock += dtSec
         val now = SystemClock.elapsedRealtime()
+        val cloud = activeCloudAnimation()
         beatPulse = maxOf(beatPulse, pendingBeat)
         pendingBeat = 0f
         beatPulse = (beatPulse - dtSec * 4.6f).coerceAtLeast(0f)
         grooveLevel = maxOf(grooveLevel, beatPulse * 0.92f)
         grooveLevel = (grooveLevel - dtSec * 0.68f).coerceAtLeast(0f)
+        val visualEnergy = maxOf(grooveLevel, cloud?.energy ?: 0f)
+        val expressiveness = cloud?.expressiveness ?: 0f
 
         // Sleep when the room goes dark, or after 10 min without a face.
         sleeping = ambientDark || (now - faceLastSeenAt > SLEEP_AFTER_MS)
@@ -155,16 +169,53 @@ class AnimationEngine {
 
         // Idle wander when nobody is around (and awake)
         if (!hasFace && !sleeping && clock >= nextWanderAt) {
-            targetX = Random.nextFloat() * 1.6f - 0.8f
-            targetY = Random.nextFloat() * 1.0f - 0.5f
-            nextWanderAt = clock + 1.0 + Random.nextDouble() * 3.0
+            when (cloud?.gazeMode ?: CloudGazeMode.CURIOUS) {
+                CloudGazeMode.STEADY -> {
+                    targetX = Random.nextFloat() * 0.44f - 0.22f
+                    targetY = Random.nextFloat() * 0.26f - 0.13f
+                    nextWanderAt = clock + 2.4 + Random.nextDouble() * 2.8
+                }
+                CloudGazeMode.DART -> {
+                    targetX = Random.nextFloat() * 1.9f - 0.95f
+                    targetY = Random.nextFloat() * 1.1f - 0.55f
+                    nextWanderAt = clock + 0.45 + Random.nextDouble() * 1.0
+                }
+                CloudGazeMode.LOCKED -> {
+                    targetX = Random.nextFloat() * 0.34f - 0.17f
+                    targetY = Random.nextFloat() * 0.18f - 0.09f
+                    nextWanderAt = clock + 1.2 + Random.nextDouble() * 1.4
+                }
+                CloudGazeMode.DREAMY -> {
+                    targetX = Random.nextFloat() * 0.78f - 0.39f
+                    targetY = -0.12f + Random.nextFloat() * 0.26f
+                    nextWanderAt = clock + 2.6 + Random.nextDouble() * 3.2
+                }
+                CloudGazeMode.CURIOUS -> {
+                    targetX = Random.nextFloat() * 1.6f - 0.8f
+                    targetY = Random.nextFloat() * 1.0f - 0.5f
+                    nextWanderAt = clock + 1.0 + Random.nextDouble() * 3.0
+                }
+            }
         }
 
         // Micro-saccades: tiny pupil jitter. Frozen pupils read as dead.
         if (clock >= nextSaccadeAt) {
-            jitterX = (Random.nextFloat() - 0.5f) * 0.04f
-            jitterY = (Random.nextFloat() - 0.5f) * 0.04f
-            nextSaccadeAt = clock + 0.4 + Random.nextDouble() * 0.8
+            val jitterScale = when (cloud?.gazeMode ?: CloudGazeMode.CURIOUS) {
+                CloudGazeMode.STEADY -> 0.45f
+                CloudGazeMode.LOCKED -> 0.28f
+                CloudGazeMode.DREAMY -> 0.62f
+                CloudGazeMode.DART -> 1.28f
+                CloudGazeMode.CURIOUS -> 0.9f + expressiveness * 0.5f
+            }
+            jitterX = (Random.nextFloat() - 0.5f) * 0.04f * jitterScale
+            jitterY = (Random.nextFloat() - 0.5f) * 0.04f * jitterScale
+            nextSaccadeAt = when (cloud?.gazeMode ?: CloudGazeMode.CURIOUS) {
+                CloudGazeMode.DART -> clock + 0.18 + Random.nextDouble() * 0.34
+                CloudGazeMode.STEADY -> clock + 0.7 + Random.nextDouble() * 0.9
+                CloudGazeMode.LOCKED -> clock + 0.55 + Random.nextDouble() * 0.65
+                CloudGazeMode.DREAMY -> clock + 0.58 + Random.nextDouble() * 0.92
+                CloudGazeMode.CURIOUS -> clock + 0.35 + Random.nextDouble() * 0.75
+            }
         }
 
         // Smooth gaze toward target (~120 ms lag: glides, never jitters)
@@ -178,7 +229,7 @@ class AnimationEngine {
             val doubleBlink = Random.nextFloat() < 0.1f
             nextBlinkAt = if (doubleBlink) clock + blinkDur + 0.18
             else clock + (2.0 + Random.nextDouble() * 2.8) /
-                (styleMood.blinkRateMul * (1f + grooveLevel * 1.4f))
+                (styleMood.blinkRateMul * (cloud?.blinkRate ?: 1f) * (1f + visualEnergy * 1.1f))
         }
         var blinkFactor = 1f
         if (blinkStart >= 0) {
@@ -194,14 +245,17 @@ class AnimationEngine {
         } else {
             styleMood.opennessBase * blinkFactor
         }
-        opennessTarget = (opennessTarget + grooveLevel * 0.09f * (0.5f + 0.5f *
+        opennessTarget = (opennessTarget * (cloud?.openness ?: 1f) - (cloud?.squint ?: 0f) * 0.22f)
+            .coerceIn(0f, 1.1f)
+        opennessTarget = (opennessTarget + visualEnergy * 0.09f * (0.5f + 0.5f *
             sin(clock * 2.0 * Math.PI * 2.6).toFloat())).coerceIn(0f, 1.1f)
 
         // Startle overrides pupil size briefly
         val startled = now < startleUntil
         var pupilTarget = if (startled) 0.7f else styleMood.pupilScale *
-            (1f + 0.25f * lastProx.coerceAtMost(0.4f) + 0.42f * beatPulse + 0.18f * grooveLevel)
-        val lidTarget = if (startled) 8f else styleMood.lidAngle
+            (1f + 0.25f * lastProx.coerceAtMost(0.4f) + 0.42f * beatPulse + 0.18f * visualEnergy) *
+            (cloud?.pupilScale ?: 1f)
+        val lidTarget = if (startled) 8f else styleMood.lidAngle + (cloud?.squint ?: 0f) * 8f
 
         // One-shot gestures override the targets while they play
         when (gesture) {
@@ -231,12 +285,17 @@ class AnimationEngine {
         // Burn-in drift: whole face wanders +-12 px over a ~10 min cycle
         val slowDriftX = (12.0 * sin(clock * 2.0 * Math.PI / 600.0)).toFloat()
         val slowDriftY = (12.0 * sin(clock * 2.0 * Math.PI / 470.0 + 1.3)).toFloat()
-        val grooveSway = sin(clock * 2.0 * Math.PI * 1.8).toFloat() * 8f * grooveLevel
+        val swayLevel = maxOf(grooveLevel, cloud?.sway ?: 0f)
+        val bounceLevel = maxOf(grooveLevel, cloud?.bounce ?: 0f)
+        val grooveSway = sin(clock * 2.0 * Math.PI * 1.8).toFloat() * 8f * swayLevel
         val grooveBounce = (0.4f + 0.6f * sin(clock * 2.0 * Math.PI * 3.2).toFloat()) *
-            16f * grooveLevel
+            16f * bounceLevel
         driftX = slowDriftX + grooveSway
         driftY = slowDriftY - 12f * beatPulse - grooveBounce
     }
+
+    private fun activeCloudAnimation(): CloudAnimation? =
+        cloudAnimation?.takeIf { !ambientDark && !covered && it.isActive() }
 
     private fun activeMood(now: Long): Mood = when {
         sleeping -> mood

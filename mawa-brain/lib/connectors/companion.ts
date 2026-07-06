@@ -18,18 +18,6 @@ export const companionConnector: ManifestConnector = {
       };
     }
 
-    if (!context.privateAccess) {
-      return {
-        state: {
-          id: this.id,
-          name: this.name,
-          status: "ready",
-          message: `Groq companion ready on ${status.model}`,
-        },
-        panels: [],
-      };
-    }
-
     try {
       const thought = await generateAmbientThought(context.now);
       return {
@@ -41,6 +29,7 @@ export const companionConnector: ManifestConnector = {
           lastUpdatedAt: context.now.toISOString(),
         },
         suggestedMood: thought.mood,
+        suggestedAnimation: thought.animation,
         panels: [
           {
             id: "mawa-thought",
@@ -67,4 +56,3 @@ export const companionConnector: ManifestConnector = {
     }
   },
 };
-

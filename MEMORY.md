@@ -52,6 +52,11 @@ in which to extend it.
 - Every cloud feature must degrade cleanly; the eyes cannot depend on Vercel.
 - Manifest payloads are data, never code. Keep schema versions explicit and
   cap panel count/text length on the phone.
+- The manifest now carries a stable remote animation direction pack
+  (`palette`, `gazeMode`, `energy`, `aura`, `bars`, `glyphs`, `sway`,
+  `bounce`, `blinkRate`, `openness`, `pupilScale`, `squint`). Future
+  personality and expression tweaks should prefer extending this declarative
+  surface before shipping new APK behavior.
 
 ## Next build order
 
@@ -68,8 +73,8 @@ in which to extend it.
    push-to-talk/debug path proves the loop.
 4. **Calendar activation:** create Google OAuth web credentials, add the
    production secrets (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
-   `MAWA_SIGNING_SECRET`, `MAWA_STATE_ENCRYPTION_SECRET`,
-   `BLOB_READ_WRITE_TOKEN`), then connect the
+   `MAWA_SIGNING_SECRET`, `MAWA_STATE_ENCRYPTION_SECRET`), ensure the Vercel
+   Blob store/project attachment is valid, then connect the
    Personal and Work accounts from the dashboard and verify panels on the
    phone.
 5. **Calendar behaviors:** morning brief on first sighting and meeting heads-up

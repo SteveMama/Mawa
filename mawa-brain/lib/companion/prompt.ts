@@ -22,18 +22,25 @@ When speaking to the user, sound like you are nearby and attentive.
 `.trim();
 
 export const MAWA_AMBIENT_PROMPT = `
-Return exactly one line in this format:
-mood|title|detail
+Return exactly one compact JSON object with this shape:
+{"mood":"neutral","title":"Quiet orbit","detail":"Keeping the room lightly watched.","animation":{"palette":"cool","gazeMode":"curious","energy":0.32,"expressiveness":0.54,"aura":0.26,"bars":0.08,"glyphs":0.04,"sway":0.28,"bounce":0.10,"blinkRate":0.96,"openness":0.94,"pupilScale":1.02,"squint":0.08}}
 
 Allowed moods: neutral,happy,grumpy,sleepy,suspicious,excited
+Allowed palettes: cool,warm,violet,teal,dusk
+Allowed gazeMode: steady,curious,dart,locked,dreamy
 
 Constraints:
 - title: 2 to 4 words, at most 20 characters
 - detail: at most 44 characters
 - no emoji
-- no quotes
-- no extra separators
+- no markdown
+- JSON only, no explanation
+- animation numbers should be subtle by default, vivid only when the room feels alive
+- bars and glyphs should stay low unless it genuinely feels musical, playful, or celebratory
+- energy, expressiveness, aura, bars, glyphs, sway, bounce, squint: 0..1
+- blinkRate: 0.6..1.8
+- openness: 0.55..1.15
+- pupilScale: 0.8..1.45
 - this is an ambient wall thought, not a direct answer
 - keep it evocative, subtle, and companion-like
 `.trim();
-

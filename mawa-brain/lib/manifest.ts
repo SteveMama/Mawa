@@ -8,6 +8,10 @@ export type MawaMood =
   | "suspicious"
   | "excited";
 
+export type MawaPalette = "cool" | "warm" | "violet" | "teal" | "dusk";
+
+export type MawaGazeMode = "steady" | "curious" | "dart" | "locked" | "dreamy";
+
 export type PanelSlot = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 
 export interface ScenePanel {
@@ -36,6 +40,22 @@ export interface WeatherScene {
   isDay: boolean;
 }
 
+export interface SceneAnimation {
+  palette: MawaPalette;
+  gazeMode: MawaGazeMode;
+  energy: number;
+  expressiveness: number;
+  aura: number;
+  bars: number;
+  glyphs: number;
+  sway: number;
+  bounce: number;
+  blinkRate: number;
+  openness: number;
+  pupilScale: number;
+  squint: number;
+}
+
 export interface SceneManifest {
   schemaVersion: typeof MANIFEST_SCHEMA_VERSION;
   manifestId: string;
@@ -46,6 +66,7 @@ export interface SceneManifest {
     mode: "ambient";
     mood: MawaMood;
     weather?: WeatherScene;
+    animation?: SceneAnimation;
     panels: ScenePanel[];
   };
   connectors: ConnectorState[];
@@ -69,6 +90,7 @@ export interface ConnectorOutput {
   panels: ScenePanel[];
   weather?: WeatherScene;
   suggestedMood?: MawaMood;
+  suggestedAnimation?: SceneAnimation;
 }
 
 export interface ManifestConnector {

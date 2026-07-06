@@ -1,6 +1,9 @@
 package com.mawa.face.net
 
 import android.util.Log
+import com.mawa.face.render.CloudAnimation
+import com.mawa.face.render.CloudGazeMode
+import com.mawa.face.render.CloudPalette
 import com.mawa.face.render.Mood
 import com.mawa.face.scene.PanelSlot
 import com.mawa.face.scene.ScenePanel
@@ -13,6 +16,7 @@ import java.util.Locale
 data class SceneSnapshot(
     val manifestId: String,
     val mood: Mood?,
+    val animation: CloudAnimation?,
     val weather: WeatherCondition?,
     val panels: List<ScenePanel>,
     val pollAfterSeconds: Int,
@@ -82,6 +86,7 @@ class SceneManifestClient(
         }
         val scene = root.getJSONObject("scene")
         val mood = scene.optString("mood", "neutral").let(::moodOf)
+        val animation = scene.optJSONObject("animation")?.let(::animationOf)
         val weather = scene.optJSONObject("weather")
             ?.optString("condition")
             ?.let(::weatherCondition)
@@ -106,11 +111,28 @@ class SceneManifestClient(
         return SceneSnapshot(
             manifestId = root.optString("manifestId", "unknown").take(80),
             mood = mood,
+            animation = animation,
             weather = weather,
             panels = panels,
             pollAfterSeconds = root.optInt("pollAfterSeconds", 300).coerceIn(60, 1800),
         )
     }
+
+    private fun animationOf(value: JSONObject): CloudAnimation = CloudAnimation(
+        palette = paletteOf(value.optString("palette", "cool")),
+        gazeMode = gazeModeOf(value.optString("gazeMode", "curious")),
+        energy = clamp(value.optDouble("energy", 0.0), 0.0, 1.0),
+        expressiveness = clamp(value.optDouble("expressiveness", 0.0), 0.0, 1.0),
+        aura = clamp(value.optDouble("aura", 0.0), 0.0, 1.0),
+        bars = clamp(value.optDouble("bars", 0.0), 0.0, 1.0),
+        glyphs = clamp(value.optDouble("glyphs", 0.0), 0.0, 1.0),
+        sway = clamp(value.optDouble("sway", 0.0), 0.0, 1.0),
+        bounce = clamp(value.optDouble("bounce", 0.0), 0.0, 1.0),
+        blinkRate = clamp(value.optDouble("blinkRate", 1.0), 0.6, 1.8),
+        openness = clamp(value.optDouble("openness", 1.0), 0.55, 1.15),
+        pupilScale = clamp(value.optDouble("pupilScale", 1.0), 0.8, 1.45),
+        squint = clamp(value.optDouble("squint", 0.0), 0.0, 1.0),
+    )
 
     private fun weatherCondition(value: String): WeatherCondition = when (value.lowercase()) {
         "clear" -> WeatherCondition.CLEAR
@@ -120,6 +142,22 @@ class SceneManifestClient(
         "fog" -> WeatherCondition.FOG
         "thunder" -> WeatherCondition.THUNDER
         else -> WeatherCondition.CLOUDS
+    }
+
+    private fun paletteOf(value: String): CloudPalette = when (value.lowercase()) {
+        "warm" -> CloudPalette.WARM
+        "violet" -> CloudPalette.VIOLET
+        "teal" -> CloudPalette.TEAL
+        "dusk" -> CloudPalette.DUSK
+        else -> CloudPalette.COOL
+    }
+
+    private fun gazeModeOf(value: String): CloudGazeMode = when (value.lowercase()) {
+        "steady" -> CloudGazeMode.STEADY
+        "dart" -> CloudGazeMode.DART
+        "locked" -> CloudGazeMode.LOCKED
+        "dreamy" -> CloudGazeMode.DREAMY
+        else -> CloudGazeMode.CURIOUS
     }
 
     private fun panelSlot(value: String): PanelSlot = when (value) {
@@ -137,6 +175,9 @@ class SceneManifestClient(
         "excited" -> Mood.EXCITED
         else -> Mood.NEUTRAL
     }
+
+    private fun clamp(value: Double, min: Double, max: Double): Float =
+        value.coerceIn(min, max).toFloat()
 
     companion object {
         private const val TAG = "SceneManifestClient"
