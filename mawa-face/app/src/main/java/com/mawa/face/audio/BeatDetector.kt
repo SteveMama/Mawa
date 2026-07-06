@@ -141,20 +141,31 @@ class BeatDetector(
                 }
                 lastCandidateAt = now
 
+                val gateAllows = !gate.enabled || gate.allowsBeat(now)
+                val gateStrong = !gate.enabled || gate.stronglyAllowsBeat(now)
                 val musicArmed = rhythmicHits >= MIN_RHYTHMIC_HITS &&
                     rhythmConfidence >= MUSIC_ARM_CONFIDENCE &&
-                    gate.allowsBeat(now)
+                    gateAllows
                 if (musicArmed) musicActiveUntil = now + MUSIC_HOLD_MS
 
-                if (musicArmed || now < musicActiveUntil) {
+                if (musicArmed || (now < musicActiveUntil && gateAllows)) {
                     lastBeatAt = now
                     val strength =
                         ((((rms / threshold) - 1f) * 0.58f) + ((rise / riseThreshold) * 0.42f))
                             .coerceIn(0.18f, 1f) *
-                            (0.65f + 0.20f * rhythmConfidence + 0.15f * gateConfidence)
+                            (0.58f + 0.27f * rhythmConfidence + 0.15f * gateConfidence)
                     onBeat(strength.coerceIn(0.18f, 1f))
                     onStatus(
                         "beat: groove ${(strength * 100f).toInt()}%  music ${(gateConfidence * 100f).toInt()}%"
+                    )
+                } else if (gateStrong && rhythmicHits >= 1 && now - lastStatusAt > STATUS_INTERVAL_MS / 2) {
+                    lastBeatAt = now
+                    val strength =
+                        ((((rms / threshold) - 1f) * 0.50f) + ((rise / riseThreshold) * 0.35f))
+                            .coerceIn(0.14f, 0.48f) * (0.65f + 0.35f * gateConfidence)
+                    onBeat(strength.coerceIn(0.14f, 0.48f))
+                    onStatus(
+                        "beat: soft ${(strength * 100f).toInt()}%  music ${(gateConfidence * 100f).toInt()}%"
                     )
                 } else if (now - lastStatusAt > STATUS_INTERVAL_MS / 2) {
                     lastStatusAt = now
@@ -191,16 +202,16 @@ class BeatDetector(
         private const val MIN_RISE_ENERGY = 0.0060f
         private const val ENERGY_MULTIPLIER = 1.55f
         private const val RISE_MULTIPLIER = 1.45f
-        private const val STRONG_BEAT_MULTIPLIER = 1.75f
-        private const val REFRACTORY_MS = 220L
+        private const val STRONG_BEAT_MULTIPLIER = 1.58f
+        private const val REFRACTORY_MS = 180L
         private const val STATUS_INTERVAL_MS = 1_200L
         private const val RHYTHM_INTERVAL_MIN_MS = 280L
         private const val RHYTHM_INTERVAL_MAX_MS = 950L
         private const val RHYTHM_MEMORY_MS = 1_800L
-        private const val MIN_RHYTHMIC_HITS = 3
-        private const val RHYTHM_CONFIDENCE_STEP = 0.38f
-        private const val MUSIC_ARM_CONFIDENCE = 0.72f
-        private const val OFF_RHYTHM_PENALTY = 0.35f
-        private const val MUSIC_HOLD_MS = 1_600L
+        private const val MIN_RHYTHMIC_HITS = 2
+        private const val RHYTHM_CONFIDENCE_STEP = 0.46f
+        private const val MUSIC_ARM_CONFIDENCE = 0.52f
+        private const val OFF_RHYTHM_PENALTY = 0.55f
+        private const val MUSIC_HOLD_MS = 2_600L
     }
 }

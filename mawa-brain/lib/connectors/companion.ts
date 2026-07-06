@@ -20,12 +20,16 @@ export const companionConnector: ManifestConnector = {
 
     try {
       const thought = await generateAmbientThought(context.room, context.now);
+      const modelLabel =
+        status.ambientModel === status.model
+          ? status.model
+          : `${status.ambientModel} (ambient) · ${status.model} (chat)`;
       return {
         state: {
           id: this.id,
           name: this.name,
           status: "ready",
-          message: `Ambient thought stream active on ${status.model}`,
+          message: `Ambient thought stream active on ${modelLabel}`,
           lastUpdatedAt: context.now.toISOString(),
         },
         suggestedMood: thought.mood,

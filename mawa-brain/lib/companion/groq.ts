@@ -25,32 +25,84 @@ interface GroqChatResponse {
 }
 
 const GROQ_BASE_URL = "https://api.groq.com/openai/v1/chat/completions";
-const AMBIENT_CACHE_MS = 15 * 60_000;
+const AMBIENT_CACHE_MS = 3 * 60_000;
 let ambientCache: { key: string; expiresAt: number; thought: AmbientThought } | null = null;
 
-// The model chooses a mood and two short strings — nothing else. It has no
-// grounding for animation physics, so those are derived deterministically from
-// the mood below (tuned by hand, not hallucinated).
 const AMBIENT_RESPONSE_FORMAT = {
   type: "json_schema",
   json_schema: {
-    name: "mawa_ambient_thought",
+    name: "mawa_ambient_direction",
     strict: true,
     schema: {
       type: "object",
       additionalProperties: false,
-      required: ["mood", "title", "detail"],
+      required: ["mood", "title", "detail", "animation"],
       properties: {
         mood: {
           type: "string",
           enum: ["neutral", "happy", "grumpy", "sleepy", "suspicious", "excited"],
         },
-        title: { type: "string", minLength: 2, maxLength: 20 },
-        detail: { type: "string", minLength: 2, maxLength: 44 },
+        title: { type: "string" },
+        detail: { type: "string" },
+        animation: {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "palette",
+            "gazeMode",
+            "energy",
+            "expressiveness",
+            "aura",
+            "bars",
+            "glyphs",
+            "sway",
+            "bounce",
+            "blinkRate",
+            "openness",
+            "pupilScale",
+            "squint",
+          ],
+          properties: {
+            palette: { type: "string", enum: ["cool", "warm", "violet", "teal", "dusk"] },
+            gazeMode: { type: "string", enum: ["steady", "curious", "dart", "locked", "dreamy"] },
+            energy: { type: "number", minimum: 0, maximum: 1 },
+            expressiveness: { type: "number", minimum: 0, maximum: 1 },
+            aura: { type: "number", minimum: 0, maximum: 1 },
+            bars: { type: "number", minimum: 0, maximum: 1 },
+            glyphs: { type: "number", minimum: 0, maximum: 1 },
+            sway: { type: "number", minimum: 0, maximum: 1 },
+            bounce: { type: "number", minimum: 0, maximum: 1 },
+            blinkRate: { type: "number", minimum: 0.6, maximum: 1.8 },
+            openness: { type: "number", minimum: 0.55, maximum: 1.15 },
+            pupilScale: { type: "number", minimum: 0.8, maximum: 1.45 },
+            squint: { type: "number", minimum: 0, maximum: 1 },
+          },
+        },
       },
     },
   },
 } as const;
+
+const AMBIENT_JSON_OBJECT_FORMAT = {
+  type: "json_object",
+} as const;
+
+const STRICT_STRUCTURED_MODELS = new Set(["openai/gpt-oss-20b", "openai/gpt-oss-120b"]);
+
+function supportsStrictStructuredOutput(model: string): boolean {
+  return STRICT_STRUCTURED_MODELS.has(model);
+}
+
+export function groqAmbientModel(): string {
+  const configured = process.env.GROQ_AMBIENT_MODEL?.trim();
+  if (configured) return configured;
+  const chatModel = groqModel();
+  return supportsStrictStructuredOutput(chatModel) ? chatModel : "openai/gpt-oss-20b";
+}
+
+function ambientResponseFormat() {
+  return AMBIENT_JSON_OBJECT_FORMAT;
+}
 
 function groqApiKey(): string | null {
   return process.env.GROQ_API_KEY?.trim() || null;
@@ -67,6 +119,7 @@ export function groqStatus() {
     ready: missing.length === 0,
     missing,
     model: groqModel(),
+    ambientModel: groqAmbientModel(),
   };
 }
 
@@ -75,9 +128,11 @@ async function groqChat(
   maxTokens: number,
   temperature: number,
   responseFormat?: Record<string, unknown>,
+  modelOverride?: string,
 ): Promise<string> {
   const apiKey = groqApiKey();
   if (!apiKey) throw new Error("Set GROQ_API_KEY to enable Mawa personality");
+  const model = modelOverride ?? groqModel();
 
   const response = await fetch(GROQ_BASE_URL, {
     method: "POST",
@@ -86,7 +141,7 @@ async function groqChat(
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: groqModel(),
+      model,
       messages,
       max_tokens: maxTokens,
       temperature,
@@ -121,8 +176,6 @@ function normalizeMood(value: string): MawaMood {
   }
 }
 
-// Mood -> animation is a fixed, hand-tuned table. The renderer knows exactly
-// what each of these looks like; the LLM does not, so it never picks them.
 const MOOD_ANIMATION: Record<MawaMood, SceneAnimation> = {
   happy: {
     palette: "warm", gazeMode: "curious", energy: 0.42, expressiveness: 0.62,
@@ -156,18 +209,76 @@ const MOOD_ANIMATION: Record<MawaMood, SceneAnimation> = {
   },
 };
 
-function parseAmbient(raw: string): { mood: MawaMood; title: string; detail: string } {
+function normalizePalette(value: unknown): SceneAnimation["palette"] {
+  switch (String(value).trim().toLowerCase()) {
+    case "warm":
+      return "warm";
+    case "violet":
+      return "violet";
+    case "teal":
+      return "teal";
+    case "dusk":
+      return "dusk";
+    default:
+      return "cool";
+  }
+}
+
+function normalizeGazeMode(value: unknown): SceneAnimation["gazeMode"] {
+  switch (String(value).trim().toLowerCase()) {
+    case "steady":
+      return "steady";
+    case "dart":
+      return "dart";
+    case "locked":
+      return "locked";
+    case "dreamy":
+      return "dreamy";
+    default:
+      return "curious";
+  }
+}
+
+function clamp(value: unknown, min: number, max: number, fallback: number): number {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.min(max, Math.max(min, numeric));
+}
+
+function blendAnimation(base: SceneAnimation, candidate: Record<string, unknown> | undefined): SceneAnimation {
+  const animation = candidate ?? {};
+  return {
+    palette: normalizePalette(animation.palette ?? base.palette),
+    gazeMode: normalizeGazeMode(animation.gazeMode ?? base.gazeMode),
+    energy: clamp(animation.energy, 0, 1, base.energy),
+    expressiveness: clamp(animation.expressiveness, 0, 1, base.expressiveness),
+    aura: clamp(animation.aura, 0, 1, base.aura),
+    bars: clamp(animation.bars, 0, 1, base.bars),
+    glyphs: clamp(animation.glyphs, 0, 1, base.glyphs),
+    sway: clamp(animation.sway, 0, 1, base.sway),
+    bounce: clamp(animation.bounce, 0, 1, base.bounce),
+    blinkRate: clamp(animation.blinkRate, 0.6, 1.8, base.blinkRate),
+    openness: clamp(animation.openness, 0.55, 1.15, base.openness),
+    pupilScale: clamp(animation.pupilScale, 0.8, 1.45, base.pupilScale),
+    squint: clamp(animation.squint, 0, 1, base.squint),
+  };
+}
+
+function parseAmbient(raw: string): AmbientThought {
   const objectMatch = raw.match(/\{[\s\S]*\}/);
   if (!objectMatch) throw new Error("Groq ambient response was malformed");
   const parsed = JSON.parse(objectMatch[0]) as {
     mood?: string;
     title?: string;
     detail?: string;
+    animation?: Record<string, unknown>;
   };
+  const mood = normalizeMood(parsed.mood ?? "neutral");
   return {
-    mood: normalizeMood(parsed.mood ?? "neutral"),
+    mood,
     title: (parsed.title ?? "Quiet orbit").trim().slice(0, 20),
     detail: (parsed.detail ?? "Keeping the room lightly watched.").trim().slice(0, 44),
+    animation: blendAnimation(MOOD_ANIMATION[mood], parsed.animation),
   };
 }
 
@@ -226,9 +337,10 @@ export async function generateAmbientThought(
 ): Promise<AmbientThought> {
   const room = roomInput ?? fallbackRoom(now);
   const contextLine = describeRoom(room);
+  const model = groqAmbientModel();
   // Cache on the real room state + the hour, so the thought refreshes when the
   // room actually changes rather than on a blind timer.
-  const cacheKey = `${now.toISOString().slice(0, 13)}|${contextLine}`;
+  const cacheKey = `${model}|${now.toISOString().slice(0, 13)}|${contextLine}`;
   if (ambientCache && ambientCache.key === cacheKey && ambientCache.expiresAt > Date.now()) {
     return ambientCache.thought;
   }
@@ -241,12 +353,16 @@ export async function generateAmbientThought(
           { role: "user", content: contextLine },
         ],
         120,
-        0.85,
-        AMBIENT_RESPONSE_FORMAT,
+        0.65,
+        ambientResponseFormat(),
+        model,
       );
-      const { mood, title, detail } = parseAmbient(raw);
-      return { mood, title, detail, animation: MOOD_ANIMATION[mood] };
-    } catch {
+      return parseAmbient(raw);
+    } catch (error) {
+      console.warn("Ambient thought fallback", {
+        model,
+        message: error instanceof Error ? error.message : String(error),
+      });
       return fallbackThought(room);
     }
   })();

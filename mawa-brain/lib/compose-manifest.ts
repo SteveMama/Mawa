@@ -74,7 +74,7 @@ export async function composeManifest(context: ManifestContext): Promise<SceneMa
     manifestId: `mawa-${context.now.getTime()}`,
     generatedAt,
     expiresAt,
-    pollAfterSeconds: 180,
+    pollAfterSeconds: 120,
     scene: {
       mode: "ambient",
       mood,

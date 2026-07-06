@@ -7,6 +7,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.os.SystemClock
 import android.util.AttributeSet
 import android.view.View
 import com.mawa.face.scene.PanelSlot
@@ -38,6 +39,10 @@ class EyeView @JvmOverloads constructor(
     var weather: WeatherCondition = WeatherCondition.CLEAR
     var warmth = 0f
     var scenePanels: List<ScenePanel> = emptyList()
+        set(value) {
+            field = value
+            scenePanelsUpdatedAt = SystemClock.elapsedRealtime()
+        }
     var cloudAnimation: CloudAnimation? = null
         set(value) {
             field = value
@@ -49,6 +54,7 @@ class EyeView @JvmOverloads constructor(
     private var flashClock = 0f
     private var musicPhase = 0f
     private var glyphSpawnAccumulator = 0f
+    private var scenePanelsUpdatedAt = 0L
 
     private val scleraPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#F5F2EA")   // warm off-white
@@ -212,7 +218,7 @@ class EyeView @JvmOverloads constructor(
     }
 
     private fun drawFocusFrame(canvas: Canvas, cx: Float, cy: Float, eyeGap: Float) {
-        if (!engine.identityLockEnabled || engine.sleeping) return
+        if (!engine.shouldShowFocusFrame()) return
         focusPaint.alpha = if (engine.visualEnergy() > 0.14f) 170 else 110
         val bracketY = cy - height * 0.17f
         val bracketHeight = height * 0.34f
@@ -312,6 +318,12 @@ class EyeView @JvmOverloads constructor(
 
     /** Render at most four short cloud-composed cards without crowding the face. */
     private fun drawScenePanels(canvas: Canvas) {
+        val age = SystemClock.elapsedRealtime() - scenePanelsUpdatedAt
+        if (!debug && (scenePanels.isEmpty() || age > PANEL_VISIBLE_MS)) return
+        val fade =
+            if (debug || age <= PANEL_FADE_AFTER_MS) 1f
+            else ((PANEL_VISIBLE_MS - age).toFloat() / (PANEL_VISIBLE_MS - PANEL_FADE_AFTER_MS))
+                .coerceIn(0f, 1f)
         for (panel in scenePanels.take(4)) {
             val left = panel.slot == PanelSlot.TOP_LEFT || panel.slot == PanelSlot.BOTTOM_LEFT
             val top = panel.slot == PanelSlot.TOP_LEFT || panel.slot == PanelSlot.TOP_RIGHT
@@ -325,19 +337,19 @@ class EyeView @JvmOverloads constructor(
                 Color.parseColor("#8FA6C0")
             }
 
-            panelPaint.alpha = 155
+            panelPaint.alpha = (155 * fade).toInt().coerceIn(0, 255)
             panelPaint.textSize = height * 0.024f
             canvas.drawText(panel.eyebrow.uppercase(), anchorX, anchorY, panelPaint)
-            panelPaint.alpha = 220
+            panelPaint.alpha = (220 * fade).toInt().coerceIn(0, 255)
             panelPaint.textSize = height * 0.046f
             canvas.drawText(panel.title, anchorX, anchorY + height * 0.055f, panelPaint)
-            panelPaint.alpha = 135
+            panelPaint.alpha = (135 * fade).toInt().coerceIn(0, 255)
             panelPaint.textSize = height * 0.027f
             canvas.drawText(panel.detail, anchorX, anchorY + height * 0.095f, panelPaint)
 
             val ruleWidth = width * 0.12f
             val ruleStart = if (left) anchorX else anchorX - ruleWidth
-            panelRulePaint.alpha = 120
+            panelRulePaint.alpha = (120 * fade).toInt().coerceIn(0, 255)
             canvas.drawLine(
                 ruleStart,
                 anchorY + height * 0.112f,
@@ -346,6 +358,11 @@ class EyeView @JvmOverloads constructor(
                 panelRulePaint,
             )
         }
+    }
+
+    companion object {
+        private const val PANEL_VISIBLE_MS = 8_000L
+        private const val PANEL_FADE_AFTER_MS = 5_000L
     }
 
     /**

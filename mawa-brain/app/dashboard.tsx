@@ -9,6 +9,7 @@ interface CompanionStatusResponse {
   ready: boolean;
   missing: string[];
   model: string;
+  ambientModel: string;
   adminAuthorized: boolean;
 }
 
@@ -169,15 +170,17 @@ export function Dashboard() {
           <div className="companion-card">
             <p className="eyebrow">GROQ COMPANION</p>
             <p className="auth-copy">
-              Same prompt as the wall-facing ambient thought engine. Paste the dashboard admin token
-              to unlock the tester (not needed on localhost).
+              Same prompt as the wall-facing ambient thought engine. If you set a dashboard admin
+              token, paste it here. If you do not, the tester is open by default.
             </p>
             <div className="auth-slot">
               <div>
                 <strong>{companionStatus?.ready ? "Companion ready" : "Companion sleeping"}</strong>
                 <small>
                   {companionStatus?.ready
-                    ? `Model: ${companionStatus.model}`
+                    ? companionStatus.ambientModel === companionStatus.model
+                      ? `Model: ${companionStatus.model}`
+                      : `Chat: ${companionStatus.model} · Ambient: ${companionStatus.ambientModel}`
                     : `Missing: ${companionStatus?.missing.join(", ") || "Groq configuration"}`}
                 </small>
               </div>
@@ -188,7 +191,7 @@ export function Dashboard() {
                 value={adminToken}
                 onChange={(event) => setAdminToken(event.target.value)}
                 onBlur={() => loadCompanionStatus().catch(() => {})}
-                placeholder="Dashboard admin token (blank on localhost)"
+                placeholder="Dashboard admin token (optional)"
               />
               <textarea
                 value={companionInput}

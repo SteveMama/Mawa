@@ -116,6 +116,7 @@ class AnimationEngine {
         private set
     var driftY = 0f
         private set
+    private var focusFrameUntil = 0L
 
     /** Play a one-shot scripted animation on top of the current state. */
     fun play(g: Gesture) {
@@ -124,6 +125,7 @@ class AnimationEngine {
             Gesture.LOCK_ON -> {
                 gesture = g
                 gestureStart = clock
+                focusFrameUntil = SystemClock.elapsedRealtime() + FOCUS_FRAME_MS
             }
         }
     }
@@ -145,6 +147,9 @@ class AnimationEngine {
             aimY = gy
             nextAvertAt = clock + 2.5 + Random.nextDouble() * 2.5
             avertUntil = 0.0
+            if (identityLockEnabled) {
+                focusFrameUntil = now + FOCUS_FRAME_MS
+            }
         }
         // Someone approached fast -> brief startled/suspicious reaction
         if (prox - lastProx > 0.08f && lastProx > 0f) {
@@ -188,6 +193,9 @@ class AnimationEngine {
     fun glyphLevel(): Float = maxOf(grooveLevel, activeCloudAnimation()?.glyphs ?: 0f)
 
     fun palette(): CloudPalette = activeCloudAnimation()?.palette ?: CloudPalette.COOL
+
+    fun shouldShowFocusFrame(): Boolean =
+        identityLockEnabled && !sleeping && SystemClock.elapsedRealtime() < focusFrameUntil
 
     fun update(dtSec: Float) {
         clock += dtSec
@@ -437,6 +445,7 @@ class AnimationEngine {
         private const val MAX_VERGENCE = 0.22f
         private const val TREMOR_AMP = 0.006f
         private const val BREATH_HZ = 0.2
+        private const val FOCUS_FRAME_MS = 1_800L
 
         // Asymmetric blink: ~45 ms to close, ~170 ms to reopen.
         private const val BLINK_CLOSE = 0.045

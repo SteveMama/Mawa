@@ -101,6 +101,9 @@ class MusicGate(
     }
 
     fun allowsBeat(nowMs: Long): Boolean = enabled &&
+        (musicConfidence >= SOFT_THRESHOLD || nowMs < musicArmedUntil)
+
+    fun stronglyAllowsBeat(nowMs: Long): Boolean = enabled &&
         (musicConfidence >= ARM_THRESHOLD || nowMs < musicArmedUntil)
 
     fun confidence(): Float = musicConfidence
@@ -119,13 +122,14 @@ class MusicGate(
         private const val MODEL = "yamnet.tflite"
         private const val SAMPLE_RATE = 16_000
         private const val MODEL_WINDOW_SAMPLES = 15_600 // 0.975 s, per YAMNet sample usage
-        private const val ANALYZE_INTERVAL_MS = 420L
-        private const val ARM_HOLD_MS = 2_200L
-        private const val ARM_THRESHOLD = 0.52f
-        private const val CONFIDENCE_DECAY = 0.70f
-        private const val SCORE_THRESHOLD = 0.10f
-        private const val MAX_RESULTS = 8
-        private const val NEGATIVE_WEIGHT = 0.85f
+        private const val ANALYZE_INTERVAL_MS = 300L
+        private const val ARM_HOLD_MS = 3_200L
+        private const val SOFT_THRESHOLD = 0.26f
+        private const val ARM_THRESHOLD = 0.38f
+        private const val CONFIDENCE_DECAY = 0.52f
+        private const val SCORE_THRESHOLD = 0.06f
+        private const val MAX_RESULTS = 12
+        private const val NEGATIVE_WEIGHT = 0.55f
 
         private val MUSIC_KEYWORDS = listOf(
             "music", "singing", "choir", "chant", "drum", "snare", "bass drum",

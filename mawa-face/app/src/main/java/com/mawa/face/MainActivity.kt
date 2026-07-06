@@ -80,6 +80,7 @@ class MainActivity : ComponentActivity() {
     private var tapCount = 0
     private var firstTapAt = 0L
     private var lastTapAt = 0L
+    private var scenePollMs = SCENE_CHECK_MS
 
     private val permissions =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
@@ -120,7 +121,7 @@ class MainActivity : ComponentActivity() {
     private val sceneTick = object : Runnable {
         override fun run() {
             refreshScene()
-            handler.postDelayed(this, SCENE_CHECK_MS)
+            handler.postDelayed(this, scenePollMs)
         }
     }
 
@@ -196,10 +197,12 @@ class MainActivity : ComponentActivity() {
                     eyeView.scenePanels = snapshot.panels
                     eyeView.cloudAnimation = snapshot.animation
                     eyeView.engine.cloudMood = snapshot.mood
+                    scenePollMs = (snapshot.pollAfterSeconds * 1000L).coerceIn(60_000L, 10 * 60_000L)
                     brainStatus = "brain: online  ${snapshot.manifestId}"
                 }.onFailure { error ->
                     eyeView.cloudAnimation = null
                     eyeView.engine.cloudMood = null
+                    scenePollMs = SCENE_CHECK_MS
                     brainStatus = "brain: offline (${error.message ?: "unavailable"})"
                     refreshLocalWeather(lat, lon)
                 }
