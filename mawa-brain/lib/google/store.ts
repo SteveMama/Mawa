@@ -31,8 +31,8 @@ function storeSecret(): string | null {
 }
 
 export function googleCalendarStorageMode(): GoogleCalendarStorageMode {
+  if (process.env.VERCEL === "1") return "blob";
   if (process.env.BLOB_READ_WRITE_TOKEN?.trim()) return "blob";
-  if (process.env.VERCEL === "1") return "unavailable";
   return "file";
 }
 
@@ -127,4 +127,3 @@ export async function removeStoredGoogleCalendarAccount(slot: GoogleCalendarSlot
   delete document.slots[slot];
   await writeDocument(document);
 }
-
