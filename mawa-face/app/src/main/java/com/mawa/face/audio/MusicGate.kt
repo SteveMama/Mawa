@@ -45,7 +45,7 @@ class MusicGate(
             audioData = AudioData.create(
                 AudioDataFormat.builder()
                     .setNumOfChannels(1)
-                    .setSampleRate(SAMPLE_RATE)
+                    .setSampleRate(SAMPLE_RATE.toFloat())
                     .build(),
                 MODEL_WINDOW_SAMPLES,
             )
