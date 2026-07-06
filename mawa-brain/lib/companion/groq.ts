@@ -323,6 +323,33 @@ function describeRoom(room: RoomContext): string {
     if (workCount > 0) parts.push(`${workCount} of those are work events.`);
     if (personalCount > 0) parts.push(`${personalCount} of those are personal events.`);
   }
+  const perception = room.perception;
+  if (perception) {
+    if (perception.covered) parts.push("The camera is covered.");
+    if (perception.ambientDark) parts.push("The room is dark.");
+    if (perception.faceCount <= 0) {
+      parts.push("No one is in view.");
+    } else {
+      parts.push(`${perception.faceCount} face${perception.faceCount === 1 ? "" : "s"} are in view.`);
+      switch (perception.recognized) {
+        case "me":
+          parts.push("The familiar person is present.");
+          break;
+        case "other":
+          parts.push("Someone unfamiliar is present.");
+          break;
+        case "unknown":
+          parts.push("A face is present but identity is uncertain.");
+          break;
+      }
+      if (perception.proximity >= 0.22) {
+        parts.push("Someone is quite close to the wall.");
+      }
+    }
+    if (perception.musicActive || perception.groove >= 0.18) {
+      parts.push(`There is music or a steady groove in the room at intensity ${perception.groove.toFixed(2)}.`);
+    }
+  }
   return parts.join(" ");
 }
 

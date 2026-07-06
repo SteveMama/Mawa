@@ -35,6 +35,7 @@ function roomFrom(context: ManifestContext, dataOutputs: ConnectorOutput[]): Roo
         when: panel.detail ?? "",
         slot: panel.connector.includes("work") ? ("work" as const) : ("personal" as const),
       })),
+    perception: context.perception,
   };
 }
 

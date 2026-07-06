@@ -86,6 +86,7 @@ class AnimationEngine {
     private var beatPulse = 0f
     private var grooveLevel = 0f
     private var intruderUntil = 0L
+    private var guardUntil = 0L
 
     // --- blink ------------------------------------------------------------
     private var clock = 0.0                 // seconds since engine start
@@ -172,7 +173,12 @@ class AnimationEngine {
     fun onIgnoredFace(prox: Float) {
         hasFace = false
         lastProx = prox
-        intruderUntil = SystemClock.elapsedRealtime() + 1_200L
+        val now = SystemClock.elapsedRealtime()
+        if (prox >= 0.16f) {
+            intruderUntil = now + 900L
+        } else {
+            guardUntil = now + 1_100L
+        }
     }
 
     /** Feed a normalized transient from the on-device beat detector. */
@@ -199,6 +205,8 @@ class AnimationEngine {
 
     fun shouldShowFocusFrame(): Boolean =
         identityLockEnabled && !sleeping && SystemClock.elapsedRealtime() < focusFrameUntil
+
+    fun guardedRecently(): Boolean = SystemClock.elapsedRealtime() < guardUntil
 
     fun update(dtSec: Float) {
         clock += dtSec
@@ -422,6 +430,7 @@ class AnimationEngine {
     private fun activeMood(now: Long): Mood = when {
         sleeping -> mood
         now < intruderUntil -> Mood.SUSPICIOUS
+        now < guardUntil -> Mood.NEUTRAL
         cloudMood != null && !ambientDark && !covered -> cloudMood!!
         grooveLevel > 0.30f && !covered -> Mood.EXCITED
         else -> mood

@@ -35,12 +35,23 @@ class SceneManifestClient(
     private val deviceToken: String = "",
 ) {
 
+    data class PresenceSnapshot(
+        val faceCount: Int = 0,
+        val recognized: String = "none",
+        val proximity: Float = 0f,
+        val covered: Boolean = false,
+        val ambientDark: Boolean = false,
+        val musicActive: Boolean = false,
+        val groove: Float = 0f,
+    )
+
     val enabled: Boolean get() = baseUrl.startsWith("https://") || baseUrl.startsWith("http://")
 
     fun fetch(
         latitude: Double,
         longitude: Double,
         appVersion: Int,
+        presence: PresenceSnapshot = PresenceSnapshot(),
         onResult: (Result<SceneSnapshot>) -> Unit,
     ) {
         if (!enabled) {
@@ -53,9 +64,18 @@ class SceneManifestClient(
             try {
                 val lat = String.format(Locale.US, "%.2f", latitude)
                 val lon = String.format(Locale.US, "%.2f", longitude)
+                val prox = String.format(Locale.US, "%.3f", presence.proximity.coerceIn(0f, 1f))
+                val groove = String.format(Locale.US, "%.3f", presence.groove.coerceIn(0f, 1f))
                 val url = URL(
                     "$baseUrl/api/manifest?lat=$lat&lon=$lon" +
-                        "&device=oneplus-wall&version=$appVersion"
+                        "&device=oneplus-wall&version=$appVersion" +
+                        "&faces=${presence.faceCount.coerceIn(0, 8)}" +
+                        "&recognized=${presence.recognized.take(16)}" +
+                        "&prox=$prox" +
+                        "&covered=${if (presence.covered) 1 else 0}" +
+                        "&dark=${if (presence.ambientDark) 1 else 0}" +
+                        "&music=${if (presence.musicActive) 1 else 0}" +
+                        "&groove=$groove"
                 )
                 connection = url.openConnection() as HttpURLConnection
                 connection.connectTimeout = CONNECT_TIMEOUT_MS

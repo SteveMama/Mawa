@@ -44,6 +44,11 @@ Constraints:
 - accent must be a hex color matching the mood/palette
 - animation must stay within the allowed ranges and should make the face feel
   distinct, not generic
+- if music is present, react like someone with taste: not merely "loud" or
+  "fast", but drawn in, amused, impressed, patient, or delighted depending on
+  the room's feel
+- reserve suspicious for genuinely uncanny or guarded moments; do not use it as
+  the default just because a person is present
 - if the room feels alive, playful, musical, eerie, or charged, increase
   expressiveness, aura, sway, or bounce honestly
 - expressiveness should materially change how alive or theatrical the face feels

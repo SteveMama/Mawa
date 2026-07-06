@@ -85,6 +85,15 @@ export interface RoomContext {
   dayPart: "morning" | "afternoon" | "evening" | "late night";
   weather?: WeatherScene["condition"];
   events: { title: string; when: string; slot: "personal" | "work" }[];
+  perception?: {
+    faceCount: number;
+    recognized: "me" | "other" | "unknown" | "none";
+    proximity: number;
+    covered: boolean;
+    ambientDark: boolean;
+    musicActive: boolean;
+    groove: number;
+  };
 }
 
 export interface ManifestContext {
@@ -94,6 +103,7 @@ export interface ManifestContext {
   appVersion?: string;
   privateAccess: boolean;
   now: Date;
+  perception?: RoomContext["perception"];
   /** Populated by composeManifest for the companion pass only. */
   room?: RoomContext;
 }

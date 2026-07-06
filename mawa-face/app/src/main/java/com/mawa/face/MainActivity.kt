@@ -75,6 +75,8 @@ class MainActivity : ComponentActivity() {
     private var identityLockEnabled = false
     private var identityAcquireUntilMs = 0L
     private var lastRecognizedMeAtMs = 0L
+    private var latestFaceCount = 0
+    private var latestProx = 0f
 
     // Blink-back edge detection
     private var prevEyeOpen = 1f
@@ -209,7 +211,7 @@ class MainActivity : ComponentActivity() {
         if (sceneRequestRunning) return
         sceneRequestRunning = true
         val (lat, lon) = LocationHelper.lastKnown(this)
-        manifestClient.fetch(lat, lon, BuildConfig.VERSION_CODE) { result ->
+        manifestClient.fetch(lat, lon, BuildConfig.VERSION_CODE, currentPresenceSnapshot()) { result ->
             runOnUiThread {
                 sceneRequestRunning = false
                 result.onSuccess { snapshot ->
@@ -302,6 +304,8 @@ class MainActivity : ComponentActivity() {
                 lastRawX = cx
                 lastRawY = cy
                 lastFaceAtMs = now
+                latestFaceCount = count
+                latestProx = prox
                 eyeView.rawFace = Pair(cx, cy)
                 val (gx, gy) = GazeMapper.map(cx, cy)
                 if (count > prevFaceCount && count > 0 && identityLockActive()) {
@@ -328,6 +332,8 @@ class MainActivity : ComponentActivity() {
                 eyeView.rawFace = null
                 eyeView.engine.onFaceLost()
                 prevFaceCount = 0
+                latestFaceCount = 0
+                latestProx = 0f
                 if (greetedThisVisit) awaySinceMs = SystemClock.elapsedRealtime()
                 greetedThisVisit = false
                 faceLine = "no face in view"
@@ -368,6 +374,27 @@ class MainActivity : ComponentActivity() {
 
     private fun refreshOverlay() {
         eyeView.debugText = camStatus + "\n" + brainStatus + "\n" + beatStatus + "\n" + faceLine
+    }
+
+    private fun currentPresenceSnapshot(): SceneManifestClient.PresenceSnapshot {
+        val recognized = when {
+            latestFaceCount <= 0 -> "none"
+            recognizedIsMe -> "me"
+            identityLockActive() -> "other"
+            else -> "unknown"
+        }
+        val groove = beatDetector?.let {
+            eyeView.engine.musicLevel().coerceIn(0f, 1f)
+        } ?: 0f
+        return SceneManifestClient.PresenceSnapshot(
+            faceCount = latestFaceCount,
+            recognized = recognized,
+            proximity = latestProx,
+            covered = eyeView.engine.covered,
+            ambientDark = eyeView.engine.ambientDark,
+            musicActive = groove >= 0.18f,
+            groove = groove,
+        )
     }
 
     private fun recognitionSummary(): String {

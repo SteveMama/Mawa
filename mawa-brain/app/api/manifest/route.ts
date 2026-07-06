@@ -10,6 +10,35 @@ function coordinate(value: string | null, fallback: number, min: number, max: nu
   return Number.isFinite(parsed) && parsed >= min && parsed <= max ? parsed : fallback;
 }
 
+function integer(value: string | null, fallback: number, min: number, max: number): number {
+  if (value === null || value.trim() === "") return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= min && parsed <= max ? parsed : fallback;
+}
+
+function unit(value: string | null, fallback = 0): number {
+  if (value === null || value.trim() === "") return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.min(1, Math.max(0, parsed)) : fallback;
+}
+
+function flag(value: string | null): boolean {
+  return value === "1" || value === "true" || value === "yes";
+}
+
+function recognized(value: string | null): "me" | "other" | "unknown" | "none" {
+  switch ((value ?? "").trim().toLowerCase()) {
+    case "me":
+      return "me";
+    case "other":
+      return "other";
+    case "unknown":
+      return "unknown";
+    default:
+      return "none";
+  }
+}
+
 export async function GET(request: NextRequest) {
   const privateAccess = hasPrivateConnectorAccess(request);
   const manifest = await composeManifest({
@@ -19,6 +48,15 @@ export async function GET(request: NextRequest) {
     appVersion: request.nextUrl.searchParams.get("version") ?? undefined,
     privateAccess,
     now: new Date(),
+    perception: {
+      faceCount: integer(request.nextUrl.searchParams.get("faces"), 0, 0, 8),
+      recognized: recognized(request.nextUrl.searchParams.get("recognized")),
+      proximity: unit(request.nextUrl.searchParams.get("prox")),
+      covered: flag(request.nextUrl.searchParams.get("covered")),
+      ambientDark: flag(request.nextUrl.searchParams.get("dark")),
+      musicActive: flag(request.nextUrl.searchParams.get("music")),
+      groove: unit(request.nextUrl.searchParams.get("groove")),
+    },
   });
 
   return NextResponse.json(manifest, {
