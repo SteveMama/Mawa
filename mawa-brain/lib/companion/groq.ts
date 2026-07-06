@@ -27,6 +27,60 @@ interface GroqChatResponse {
 const GROQ_BASE_URL = "https://api.groq.com/openai/v1/chat/completions";
 const AMBIENT_CACHE_MS = 15 * 60_000;
 let ambientCache: { key: string; expiresAt: number; thought: AmbientThought } | null = null;
+const AMBIENT_RESPONSE_FORMAT = {
+  type: "json_schema",
+  json_schema: {
+    name: "mawa_ambient_direction",
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["mood", "title", "detail", "animation"],
+      properties: {
+        mood: {
+          type: "string",
+          enum: ["neutral", "happy", "grumpy", "sleepy", "suspicious", "excited"],
+        },
+        title: { type: "string", minLength: 2, maxLength: 20 },
+        detail: { type: "string", minLength: 2, maxLength: 44 },
+        animation: {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "palette",
+            "gazeMode",
+            "energy",
+            "expressiveness",
+            "aura",
+            "bars",
+            "glyphs",
+            "sway",
+            "bounce",
+            "blinkRate",
+            "openness",
+            "pupilScale",
+            "squint",
+          ],
+          properties: {
+            palette: { type: "string", enum: ["cool", "warm", "violet", "teal", "dusk"] },
+            gazeMode: { type: "string", enum: ["steady", "curious", "dart", "locked", "dreamy"] },
+            energy: { type: "number", minimum: 0, maximum: 1 },
+            expressiveness: { type: "number", minimum: 0, maximum: 1 },
+            aura: { type: "number", minimum: 0, maximum: 1 },
+            bars: { type: "number", minimum: 0, maximum: 1 },
+            glyphs: { type: "number", minimum: 0, maximum: 1 },
+            sway: { type: "number", minimum: 0, maximum: 1 },
+            bounce: { type: "number", minimum: 0, maximum: 1 },
+            blinkRate: { type: "number", minimum: 0.6, maximum: 1.8 },
+            openness: { type: "number", minimum: 0.55, maximum: 1.15 },
+            pupilScale: { type: "number", minimum: 0.8, maximum: 1.45 },
+            squint: { type: "number", minimum: 0, maximum: 1 },
+          },
+        },
+      },
+    },
+  },
+} as const;
 
 function groqApiKey(): string | null {
   return process.env.GROQ_API_KEY?.trim() || null;
@@ -46,7 +100,12 @@ export function groqStatus() {
   };
 }
 
-async function groqChat(messages: GroqMessage[], maxTokens: number, temperature: number): Promise<string> {
+async function groqChat(
+  messages: GroqMessage[],
+  maxTokens: number,
+  temperature: number,
+  responseFormat?: Record<string, unknown>,
+): Promise<string> {
   const apiKey = groqApiKey();
   if (!apiKey) throw new Error("Set GROQ_API_KEY to enable Mawa personality");
 
@@ -61,6 +120,7 @@ async function groqChat(messages: GroqMessage[], maxTokens: number, temperature:
       messages,
       max_tokens: maxTokens,
       temperature,
+      ...(responseFormat ? { response_format: responseFormat } : {}),
     }),
     cache: "no-store",
     signal: AbortSignal.timeout(12_000),
@@ -281,6 +341,30 @@ function dayContext(now: Date): string {
   return "evening";
 }
 
+function fallbackAmbientThought(now: Date): AmbientThought {
+  const hourContext = dayContext(now);
+  const normalizedMood: MawaMood =
+    hourContext === "late night" ? "sleepy" :
+    hourContext === "morning" ? "happy" :
+    "neutral";
+  const title =
+    hourContext === "late night" ? "Night watch" :
+    hourContext === "morning" ? "Soft start" :
+    hourContext === "evening" ? "Room held" :
+    "Quiet orbit";
+  const detail =
+    hourContext === "late night" ? "Keeping the room dim and patient." :
+    hourContext === "morning" ? "Taking the light a little brighter." :
+    hourContext === "evening" ? "Watching the edges of the room." :
+    "Keeping the room lightly watched.";
+  return {
+    mood: normalizeMood(normalizedMood),
+    title,
+    detail,
+    animation: defaultAnimation(normalizeMood(normalizedMood)),
+  };
+}
+
 export async function generateAmbientThought(now: Date): Promise<AmbientThought> {
   const contextLine = `It is ${dayContext(now)} in the room.`;
   const cacheKey = ambientCacheKey(now, contextLine);
@@ -288,15 +372,22 @@ export async function generateAmbientThought(now: Date): Promise<AmbientThought>
     return ambientCache.thought;
   }
 
-  const raw = await groqChat(
-    [
-      { role: "system", content: `${MAWA_COMPANION_SYSTEM_PROMPT}\n\n${MAWA_AMBIENT_PROMPT}` },
-      { role: "user", content: contextLine },
-    ],
-    80,
-    0.9,
-  );
-  const thought = parseAmbient(raw);
+  const thought = await (async () => {
+    try {
+      const raw = await groqChat(
+        [
+          { role: "system", content: `${MAWA_COMPANION_SYSTEM_PROMPT}\n\n${MAWA_AMBIENT_PROMPT}` },
+          { role: "user", content: contextLine },
+        ],
+        180,
+        0.85,
+        AMBIENT_RESPONSE_FORMAT,
+      );
+      return parseAmbient(raw);
+    } catch {
+      return fallbackAmbientThought(now);
+    }
+  })();
   ambientCache = {
     key: cacheKey,
     expiresAt: Date.now() + AMBIENT_CACHE_MS,
