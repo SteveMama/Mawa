@@ -53,17 +53,17 @@ music control, and personality state.
 │                                                                  │
 │  Manifest composer ◄── connector registry                       │
 │       │                 ├─ Weather (live)                        │
-│  Dashboard              ├─ Calendar / Gmail (planned)            │
-│       │                 └─ Spotify (planned)                     │
-│  Personality engine ── LLMProvider (Groq default, planned)       │
+│  Dashboard              ├─ Calendar via secret iCal (live)       │
+│       │                 ├─ Gmail / Spotify (planned)             │
+│  Personality engine ── LLMProvider (Groq default, live)          │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
 ### Design principles
 
 1. **Resilient face, smart brain.** The phone owns vision and lifelike local
-   behavior. The brain composes optional information scenes. All secrets and
-   OAuth tokens live in Vercel.
+   behavior. The brain composes optional information scenes. All secrets
+   (API keys, device/admin tokens, secret iCal URLs) live in Vercel.
 2. **Vision never leaves the device.** ML Kit runs on-phone; only derived
    events ("face appeared at x,y", "face lost") cross the network.
 3. **Offline-degradable.** If Vercel is unreachable, the eyes keep
@@ -133,17 +133,28 @@ positioned symmetric about center, roughly 0.28 × screenWidth apart.
 | `lidAngle` | −15..15° | Upper-lid tilt (grumpy vs surprised) |
 | `squash` | 0.7..1.1 | Vertical eye squash (happy crescent) |
 
-All parameters move through a critically-damped spring (or `lerp` with
-per-param rate) — **nothing ever snaps**. Target values come from
-(a) the gaze mapper, (b) the current mood preset, (c) one-shot gestures
-(blink, glance, eye-roll) layered on top.
+**Gaze model — fixate then saccade.** Real eyes do not glide continuously
+toward a target (that reads as a tracking camera); they hold still, then
+snap. Gaze position is driven by an **underdamped spring** (~4% overshoot,
+~180ms settle, sub-stepped for stability at low fps) toward a target that
+changes only on discrete gaze shifts. On a face it holds contact, re-fixates
+with a corrective saccade only once the face drifts past a deadband, and
+**averts** periodically (looks away, then back) because no one holds eye
+contact forever. Styling params (pupilScale, lidAngle, squash) still ease.
 
-**Blink scheduler.** Next blink at `now + uniform(2.2s, 5.5s)`; blink is a
-~140ms close-open of `openness`; 10% chance of a double blink. Suppressed
-during SPEAKING gestures that already animate lids.
+**Vergence.** Pupils converge inward proportional to proximity, so a near
+face is met with both eyes turning in, not two locked pupils.
 
-**Micro-saccades.** Every 0.4–1.2s, add ±0.02 jitter to pupil target.
-Frozen pupils are the #1 tell that a face is fake.
+**Blink scheduler.** Next blink at `now + uniform(2.2s, 5.5s)`, scaled by
+mood/energy; the curve is **asymmetric** — ~45ms to close, ~170ms to reopen.
+The right lid trails the left slightly, ~12% are half-blinks, single-eye
+flicks are rare, and a blink often rides through a big gaze shift or a
+startle. 10% chance of a double blink.
+
+**Micro-tremor.** Independent per-eye high-frequency jitter (~±0.006) keeps
+fixations alive without reading as drift. A slow breath oscillation (~0.2 Hz)
+on openness and a face bob mean an idle face never looks dead. Frozen pupils
+are the #1 tell that a face is fake.
 
 **Idle wander.** With no face: pick a random gaze point, ease to it, dwell
 1–4s, repeat. Occasionally (every few minutes) a scripted gesture: glance
@@ -256,14 +267,14 @@ mawa-brain/
     page.tsx                 # connector/status dashboard
     api/health/route.ts      # liveness
     api/manifest/route.ts    # phone scene endpoint
-    api/google/*             # dashboard auth/connect/disconnect routes
+    api/companion/*          # personality status + chat tester
   lib/
     manifest.ts              # shared v1 schema
-    compose-manifest.ts      # fan-out + bounded composition
+    compose-manifest.ts      # fan-out + bounded composition + room context
     connectors/
       registry.ts            # active + planned connectors
       weather.ts             # Open-Meteo connector
-      google-calendar.ts     # Personal + Work OAuth-backed connectors
+      ics-calendar.ts        # Personal + Work secret-iCal connectors
 ```
 
 Each connector returns status, zero or more short panels, and optional scene
@@ -272,19 +283,22 @@ flattens their output, and sets explicit generation/expiry times.
 
 ### 4.3 LLM and state
 
-Groq is now the default personality engine via its OpenAI-compatible chat
-completions API. The brain owns one shared system prompt for two surfaces:
-private ambient thought panels in the manifest and a dashboard chat tester
-unlocked by the Google OAuth browser session. Anthropic or local Ollama can
-still be added later behind the same abstraction. Rate-limit handling remains
-one bounded retry followed by a short canned response so the phone never waits
-indefinitely.
+Groq is the default personality engine via its OpenAI-compatible chat
+completions API. The model reasons about the **actual room** — the composer
+runs the data connectors first, distills a `RoomContext` (day part, weather,
+next calendar events), and hands that to the personality pass. The model
+returns only a mood and a two-line thought; the **animation is derived
+deterministically from the mood** via a hand-tuned table, because an LLM has
+no grounding for animation physics. One shared system prompt drives two
+surfaces: ambient thought panels in the manifest and a dashboard chat tester
+gated by the admin token. Anthropic or local Ollama can be added later behind
+the same abstraction. On error the fallback thought table responds so the
+phone never waits.
 
-Vercel functions have no durable local filesystem. Conversation memory,
-chattiness budgets, encrypted OAuth refresh tokens, and scheduled connector
-state must use managed durable storage. Mawa uses encrypted state records in a
-private Vercel Blob store in production and a local file only for development
-and CI smoke tests.
+Calendar event detail reaches the personality prompt only on the private path
+(panels exist only for the paired device), preserving the privacy boundary.
+Conversation memory and chattiness budgets (planned) would use managed durable
+storage; the current build keeps no server-side user state.
 
 The personality remains dry, warm, slightly theatrical, and brief: one or two
 spoken sentences, no invented calendar/email facts, and no emoji in TTS text.
@@ -324,20 +338,20 @@ they do not belong in the read-only scene manifest.
 
 ## 6. External integrations
 
-### Google Calendar + Gmail
+### Calendar + Gmail
 
-- **Calendar v1 (implemented):** the dashboard exposes separate Personal and
-  Work "Connect Google Account" actions. Each slot runs a Google OAuth web
-  flow, stores the resulting refresh token encrypted at rest, refreshes
-  server-side, and reads only that account's primary calendar with
-  `calendar.readonly`.
-- Event details are returned only when the paired-device bearer token or the
-  signed dashboard-admin cookie matches; public dashboard previews show status
-  without titles.
-- **Gmail (planned):** extend the same Google OAuth foundation with
-  `gmail.readonly` and metadata-first fetches.
-- Gmail: `messages.list(q="is:unread newer_than:1d from:(<allowlist>)")`,
-  metadata-only fetch (From/Subject) unless summarization is requested.
+- **Calendar v2 (implemented):** keyless via each calendar's **secret iCal
+  URL** (Google Calendar → Settings → "Secret address in iCal format"). The
+  connector fetches the `.ics`, parses `VEVENT`s (with TZID→UTC handling), and
+  returns the next event within 24 hours. Two env vars, no OAuth, no client
+  credentials, no stored/encrypted tokens. The secret URL is a read-only bearer
+  capability — the same trust model as the paired-device token.
+- Event details (titles/times) are returned only when the paired-device bearer
+  token matches; public dashboard previews show connection status without them.
+- **Gmail (planned):** if it lands it will use a narrow read-only integration
+  with metadata-first fetches and a sender allowlist.
+- Gmail sketch: unread from an allowlist in the last day, metadata-only
+  (From/Subject) unless summarization is requested.
 
 ### Spotify Connect
 
@@ -368,8 +382,8 @@ speaker legitimately.
   text only.
 - **Location:** manifest requests use coordinates rounded to two decimals
   (~1 km); weather does not require precise location.
-- **Secrets:** API keys and OAuth tokens are Vercel environment variables and
-  managed encrypted records, never Android resources or committed files.
+- **Secrets:** API keys, device/admin tokens, and secret iCal URLs are Vercel
+  environment variables, never committed files.
 - **Transport:** HTTPS only. The public weather manifest is read-only; private
   connector data and future POST endpoints require a device bearer token.
 - **Visitor courtesy:** covering the camera closes the eyes; a physical
@@ -409,13 +423,10 @@ environment variables in production:
 GROQ_API_KEY=...
 GROQ_MODEL=llama-3.3-70b-versatile
 MAWA_DEVICE_TOKEN=<random 32+ chars>
-MAWA_SIGNING_SECRET=<random 32+ chars>
-MAWA_STATE_ENCRYPTION_SECRET=<random 32+ chars>
 MAWA_DASHBOARD_ADMIN_TOKEN=<random 32+ chars>
 MAWA_TIME_ZONE=America/New_York
-GOOGLE_CLIENT_ID=...
-GOOGLE_CLIENT_SECRET=...
-BLOB_READ_WRITE_TOKEN=<private Vercel Blob read/write token>
+MAWA_CALENDAR_PERSONAL_ICS=<secret iCal URL>
+MAWA_CALENDAR_WORK_ICS=<secret iCal URL>
 SPOTIFY_CLIENT_ID=...
 ```
 

@@ -19,7 +19,7 @@ export const companionConnector: ManifestConnector = {
     }
 
     try {
-      const thought = await generateAmbientThought(context.now);
+      const thought = await generateAmbientThought(context.room, context.now);
       return {
         state: {
           id: this.id,

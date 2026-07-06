@@ -5,44 +5,26 @@ import type { SceneManifest } from "../lib/manifest";
 
 const DEFAULT_LOCATION = { latitude: 42.3601, longitude: -71.0589 };
 
-interface GoogleSlotStatus {
-  slot: "personal" | "work";
-  name: string;
-  connected: boolean;
-  email?: string;
-  connectedAt?: string;
-  message: string;
-}
-
-interface GoogleStatusResponse {
-  ready: boolean;
-  missing: string[];
-  storageMode: "blob" | "file" | "unavailable";
-  adminRequired: boolean;
-  adminConfigured: boolean;
-  adminAuthorized: boolean;
-  slots: GoogleSlotStatus[];
-}
-
 interface CompanionStatusResponse {
   ready: boolean;
   missing: string[];
   model: string;
-  adminRequired: boolean;
-  adminConfigured: boolean;
   adminAuthorized: boolean;
 }
 
 export function Dashboard() {
   const [manifest, setManifest] = useState<SceneManifest | null>(null);
-  const [googleStatus, setGoogleStatus] = useState<GoogleStatusResponse | null>(null);
   const [companionStatus, setCompanionStatus] = useState<CompanionStatusResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [authBusy, setAuthBusy] = useState<string | null>(null);
-  const [flash, setFlash] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [adminToken, setAdminToken] = useState("");
   const [companionInput, setCompanionInput] = useState("How are you feeling on the wall tonight?");
   const [companionReply, setCompanionReply] = useState<string | null>(null);
+
+  const authHeaders = useCallback((): HeadersInit => {
+    return adminToken.trim() ? { Authorization: `Bearer ${adminToken.trim()}` } : {};
+  }, [adminToken]);
 
   const load = useCallback(async (location = DEFAULT_LOCATION) => {
     setLoading(true);
@@ -63,38 +45,21 @@ export function Dashboard() {
     }
   }, []);
 
-  const loadGoogleStatus = useCallback(async () => {
-    const response = await fetch("/api/google/status", { cache: "no-store" });
-    if (!response.ok) throw new Error(`Google status returned ${response.status}`);
-    setGoogleStatus((await response.json()) as GoogleStatusResponse);
-  }, []);
-
   const loadCompanionStatus = useCallback(async () => {
-    const response = await fetch("/api/companion/status", { cache: "no-store" });
+    const response = await fetch("/api/companion/status", {
+      cache: "no-store",
+      headers: authHeaders(),
+    });
     if (!response.ok) throw new Error(`Companion status returned ${response.status}`);
     setCompanionStatus((await response.json()) as CompanionStatusResponse);
-  }, []);
+  }, [authHeaders]);
 
   useEffect(() => {
     load();
-    loadGoogleStatus().catch((cause) => {
-      setError(cause instanceof Error ? cause.message : "Could not load Google auth status");
-    });
     loadCompanionStatus().catch((cause) => {
       setError(cause instanceof Error ? cause.message : "Could not load companion status");
     });
-  }, [load, loadCompanionStatus, loadGoogleStatus]);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("google") === "connected") {
-      setFlash(`${params.get("slot") === "work" ? "Work" : "Personal"} calendar connected`);
-      return;
-    }
-    if (params.get("google_error")) {
-      setFlash(`Google auth error: ${params.get("google_error")}`);
-    }
-  }, []);
+  }, [load, loadCompanionStatus]);
 
   function useMyLocation() {
     if (!navigator.geolocation) return;
@@ -105,27 +70,12 @@ export function Dashboard() {
     );
   }
 
-  async function disconnect(slot: "personal" | "work") {
-    setAuthBusy(slot);
-    try {
-      const response = await fetch(`/api/google/disconnect?slot=${slot}`, {
-        method: "POST",
-      });
-      if (!response.ok) throw new Error(`Disconnect returned ${response.status}`);
-      await Promise.all([load(), loadGoogleStatus(), loadCompanionStatus()]);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not disconnect Google Calendar");
-    } finally {
-      setAuthBusy(null);
-    }
-  }
-
   async function askCompanion() {
-    setAuthBusy("companion");
+    setBusy(true);
     try {
       const response = await fetch("/api/companion/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ message: companionInput }),
       });
       const payload = (await response.json()) as { reply?: string; error?: string };
@@ -136,7 +86,7 @@ export function Dashboard() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not reach the companion");
     } finally {
-      setAuthBusy(null);
+      setBusy(false);
     }
   }
 
@@ -159,7 +109,7 @@ export function Dashboard() {
       <section className="toolbar">
         <div>
           <span className={`dot ${error ? "bad" : ""}`} />
-          {loading ? "Composing scene…" : error ?? flash ?? "Manifest online"}
+          {loading ? "Composing scene…" : error ?? "Manifest online"}
         </div>
         <div className="actions">
           <button onClick={useMyLocation}>Use my location</button>
@@ -205,71 +155,22 @@ export function Dashboard() {
               </div>
             ))}
           </div>
+
           <div className="calendar-auth">
-            <p className="eyebrow">GOOGLE CALENDAR</p>
+            <p className="eyebrow">CALENDARS (iCal)</p>
             <p className="auth-copy">
-              Connect two separate Google accounts. The first successful Google sign-in also
-              unlocks this dashboard session, so Google login is the real entry point for private
-              controls.
+              Calendars connect via each calendar&apos;s secret iCal URL — set{" "}
+              <code>MAWA_CALENDAR_PERSONAL_ICS</code> and <code>MAWA_CALENDAR_WORK_ICS</code> in the
+              environment. No OAuth, no stored tokens. Event details reach the paired wall device
+              only; this public preview shows connection status alone.
             </p>
-            <div className="auth-list">
-              {!googleStatus?.adminAuthorized ? (
-                <div className="auth-slot auth-unlock">
-                  <div>
-                    <strong>Sign In Through Google</strong>
-                    <small>
-                      Click either calendar connect button below. After Google completes the OAuth
-                      flow, this browser session becomes the authorized dashboard session too.
-                    </small>
-                  </div>
-                </div>
-              ) : null}
-              {googleStatus?.slots.map((slot) => (
-                <div className="auth-slot" key={slot.slot}>
-                  <div>
-                    <strong>{slot.name}</strong>
-                    <small>{slot.message}</small>
-                  </div>
-                  <div className="auth-actions">
-                    {slot.connected ? (
-                      <button
-                        onClick={() => disconnect(slot.slot)}
-                        disabled={authBusy === slot.slot || !googleStatus.adminAuthorized}
-                      >
-                        {authBusy === slot.slot ? "Disconnecting…" : "Disconnect"}
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => window.location.assign(`/api/google/connect?slot=${slot.slot}`)}
-                        disabled={!googleStatus.ready}
-                        title={
-                          !googleStatus.ready
-                            ? `Google OAuth not configured: ${
-                                googleStatus?.missing.join(", ") || "missing environment"
-                              }`
-                            : undefined
-                        }
-                      >
-                        {googleStatus.ready ? "Connect Google Account" : "Google OAuth Not Configured"}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-            {!googleStatus?.ready ? (
-              <p className="auth-warning">
-                Missing: {googleStatus?.missing.join(", ") || "Google OAuth configuration"}
-                {" · "}Storage: {googleStatus?.storageMode ?? "unknown"}
-              </p>
-            ) : null}
           </div>
 
           <div className="companion-card">
             <p className="eyebrow">GROQ COMPANION</p>
             <p className="auth-copy">
-              Same prompt as the wall-facing ambient thought engine. Use this to tune Mawa&apos;s
-              personality before voice is fully wired on the phone.
+              Same prompt as the wall-facing ambient thought engine. Paste the dashboard admin token
+              to unlock the tester (not needed on localhost).
             </p>
             <div className="auth-slot">
               <div>
@@ -282,6 +183,13 @@ export function Dashboard() {
               </div>
             </div>
             <div className="companion-compose">
+              <input
+                type="password"
+                value={adminToken}
+                onChange={(event) => setAdminToken(event.target.value)}
+                onBlur={() => loadCompanionStatus().catch(() => {})}
+                placeholder="Dashboard admin token (blank on localhost)"
+              />
               <textarea
                 value={companionInput}
                 onChange={(event) => setCompanionInput(event.target.value)}
@@ -289,20 +197,14 @@ export function Dashboard() {
               />
               <button
                 onClick={askCompanion}
-                disabled={
-                  authBusy === "companion" ||
-                  !companionInput.trim() ||
-                  !companionStatus?.ready ||
-                  !companionStatus.adminAuthorized
-                }
+                disabled={busy || !companionInput.trim() || !companionStatus?.ready}
               >
-                {authBusy === "companion" ? "Listening…" : "Ask Mawa"}
+                {busy ? "Listening…" : "Ask Mawa"}
               </button>
             </div>
-            {!companionStatus?.adminAuthorized ? (
+            {companionStatus && !companionStatus.adminAuthorized ? (
               <p className="auth-warning">
-                Sign in through one of the Google Calendar connect buttons first to unlock the
-                private companion tester in this browser session.
+                Enter the admin token above to unlock the companion tester in this browser.
               </p>
             ) : null}
             {companionReply ? <p className="companion-reply">{companionReply}</p> : null}

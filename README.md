@@ -26,7 +26,10 @@ What works in this phase:
 - Two capsule eyes on a pure-black OLED background, 60 fps
 - Face tracking at ~5 fps via CameraX + ML Kit (fully on-device — no frame
   ever leaves the phone)
-- Blinks, micro-saccades, idle wander, moods, burn-in drift
+- Human-eye motion model: fixate-then-saccade gaze (ballistic jumps that hold,
+  not a continuous glide), vergence on near faces, asymmetric blinks, breathing,
+  per-eye tremor, and gaze aversion so it doesn't stare like a camera; plus
+  moods and burn-in drift
 - Sleeps (eyes close, breathing lids) after 10 min alone; wakes when it
   sees you
 - Kiosk behaviors: fullscreen immersive, screen always on, relaunch on
@@ -48,11 +51,13 @@ What works in this phase:
   tempo-biased blinks, and an excited vibe state
 - Identity lock: once your face is enrolled, double-tap toggles between
   "locked on you" and a relaxed ambient mode
-- OAuth-backed Personal and Work Google Calendar slots with encrypted refresh
-  tokens, dashboard connect buttons, and private next-event panels; Google OAuth
-  now also unlocks the dashboard session
-- Groq-backed companion personality: ambient thought panels in the manifest and
-  a protected dashboard chat tester using the same wall-companion prompt
+- Keyless Personal and Work calendars via each calendar's secret iCal URL
+  (no OAuth, no client credentials, no stored tokens); private next-event panels
+  reach the paired device only
+- Groq-backed companion personality grounded in the actual room (time of day,
+  weather, and next calendar events): it picks a mood and a short thought, the
+  animation is derived deterministically from that mood; ambient thought panels
+  in the manifest and an admin-token dashboard chat tester share one prompt
 
 ## Face recognition
 

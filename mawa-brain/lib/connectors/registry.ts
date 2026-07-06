@@ -1,7 +1,7 @@
 import type { ConnectorState, ManifestConnector } from "../manifest";
 import { companionConnector } from "./companion";
 import { weatherConnector } from "./weather";
-import { personalCalendarConnector, workCalendarConnector } from "./google-calendar";
+import { personalCalendarConnector, workCalendarConnector } from "./ics-calendar";
 
 export const activeConnectors: ManifestConnector[] = [
   weatherConnector,

@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isDashboardAuthorized } from "../../../../lib/auth";
+import { isAdminAuthorized } from "../../../../lib/auth";
 import { generateCompanionReply } from "../../../../lib/companion/groq";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
-  if (!isDashboardAuthorized(request)) {
-    return NextResponse.json({ error: "sign in through Google first" }, { status: 401 });
+  if (!isAdminAuthorized(request)) {
+    return NextResponse.json({ error: "provide the dashboard admin token" }, { status: 401 });
   }
 
   const payload = (await request.json().catch(() => ({}))) as { message?: string };

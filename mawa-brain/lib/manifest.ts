@@ -76,6 +76,17 @@ export interface SceneManifest {
   };
 }
 
+/**
+ * Distilled state of the room, assembled from the data connectors and handed to
+ * the personality model so its "thought" is grounded in something real (time,
+ * weather, what's on the calendar) instead of generated from thin air.
+ */
+export interface RoomContext {
+  dayPart: "morning" | "afternoon" | "evening" | "late night";
+  weather?: WeatherScene["condition"];
+  events: { title: string; when: string; slot: "personal" | "work" }[];
+}
+
 export interface ManifestContext {
   latitude: number;
   longitude: number;
@@ -83,6 +94,8 @@ export interface ManifestContext {
   appVersion?: string;
   privateAccess: boolean;
   now: Date;
+  /** Populated by composeManifest for the companion pass only. */
+  room?: RoomContext;
 }
 
 export interface ConnectorOutput {

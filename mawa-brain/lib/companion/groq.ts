@@ -1,5 +1,5 @@
 import { MAWA_AMBIENT_PROMPT, MAWA_COMPANION_SYSTEM_PROMPT } from "./prompt";
-import type { MawaGazeMode, MawaMood, MawaPalette, SceneAnimation } from "../manifest";
+import type { MawaMood, RoomContext, SceneAnimation } from "../manifest";
 
 interface GroqMessage {
   role: "system" | "user" | "assistant";
@@ -27,15 +27,19 @@ interface GroqChatResponse {
 const GROQ_BASE_URL = "https://api.groq.com/openai/v1/chat/completions";
 const AMBIENT_CACHE_MS = 15 * 60_000;
 let ambientCache: { key: string; expiresAt: number; thought: AmbientThought } | null = null;
+
+// The model chooses a mood and two short strings — nothing else. It has no
+// grounding for animation physics, so those are derived deterministically from
+// the mood below (tuned by hand, not hallucinated).
 const AMBIENT_RESPONSE_FORMAT = {
   type: "json_schema",
   json_schema: {
-    name: "mawa_ambient_direction",
+    name: "mawa_ambient_thought",
     strict: true,
     schema: {
       type: "object",
       additionalProperties: false,
-      required: ["mood", "title", "detail", "animation"],
+      required: ["mood", "title", "detail"],
       properties: {
         mood: {
           type: "string",
@@ -43,40 +47,6 @@ const AMBIENT_RESPONSE_FORMAT = {
         },
         title: { type: "string", minLength: 2, maxLength: 20 },
         detail: { type: "string", minLength: 2, maxLength: 44 },
-        animation: {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "palette",
-            "gazeMode",
-            "energy",
-            "expressiveness",
-            "aura",
-            "bars",
-            "glyphs",
-            "sway",
-            "bounce",
-            "blinkRate",
-            "openness",
-            "pupilScale",
-            "squint",
-          ],
-          properties: {
-            palette: { type: "string", enum: ["cool", "warm", "violet", "teal", "dusk"] },
-            gazeMode: { type: "string", enum: ["steady", "curious", "dart", "locked", "dreamy"] },
-            energy: { type: "number", minimum: 0, maximum: 1 },
-            expressiveness: { type: "number", minimum: 0, maximum: 1 },
-            aura: { type: "number", minimum: 0, maximum: 1 },
-            bars: { type: "number", minimum: 0, maximum: 1 },
-            glyphs: { type: "number", minimum: 0, maximum: 1 },
-            sway: { type: "number", minimum: 0, maximum: 1 },
-            bounce: { type: "number", minimum: 0, maximum: 1 },
-            blinkRate: { type: "number", minimum: 0.6, maximum: 1.8 },
-            openness: { type: "number", minimum: 0.55, maximum: 1.15 },
-            pupilScale: { type: "number", minimum: 0.8, maximum: 1.45 },
-            squint: { type: "number", minimum: 0, maximum: 1 },
-          },
-        },
       },
     },
   },
@@ -134,10 +104,6 @@ async function groqChat(
   return content;
 }
 
-function ambientCacheKey(now: Date, contextLine: string): string {
-  return `${now.toISOString().slice(0, 13)}|${contextLine}`;
-}
-
 function normalizeMood(value: string): MawaMood {
   switch (value.trim().toLowerCase()) {
     case "happy":
@@ -155,179 +121,72 @@ function normalizeMood(value: string): MawaMood {
   }
 }
 
-function normalizePalette(value: string): MawaPalette {
-  switch (value.trim().toLowerCase()) {
-    case "warm":
-      return "warm";
-    case "violet":
-      return "violet";
-    case "teal":
-      return "teal";
-    case "dusk":
-      return "dusk";
-    default:
-      return "cool";
-  }
-}
+// Mood -> animation is a fixed, hand-tuned table. The renderer knows exactly
+// what each of these looks like; the LLM does not, so it never picks them.
+const MOOD_ANIMATION: Record<MawaMood, SceneAnimation> = {
+  happy: {
+    palette: "warm", gazeMode: "curious", energy: 0.42, expressiveness: 0.62,
+    aura: 0.34, bars: 0.1, glyphs: 0.12, sway: 0.32, bounce: 0.18,
+    blinkRate: 1.02, openness: 1.04, pupilScale: 1.08, squint: 0.08,
+  },
+  grumpy: {
+    palette: "violet", gazeMode: "steady", energy: 0.24, expressiveness: 0.58,
+    aura: 0.18, bars: 0.0, glyphs: 0.0, sway: 0.12, bounce: 0.04,
+    blinkRate: 0.84, openness: 0.84, pupilScale: 0.96, squint: 0.34,
+  },
+  sleepy: {
+    palette: "dusk", gazeMode: "dreamy", energy: 0.12, expressiveness: 0.36,
+    aura: 0.12, bars: 0.0, glyphs: 0.0, sway: 0.08, bounce: 0.02,
+    blinkRate: 0.68, openness: 0.68, pupilScale: 0.9, squint: 0.16,
+  },
+  suspicious: {
+    palette: "teal", gazeMode: "locked", energy: 0.38, expressiveness: 0.72,
+    aura: 0.22, bars: 0.02, glyphs: 0.0, sway: 0.22, bounce: 0.08,
+    blinkRate: 1.14, openness: 0.82, pupilScale: 0.92, squint: 0.42,
+  },
+  excited: {
+    palette: "warm", gazeMode: "dart", energy: 0.82, expressiveness: 0.86,
+    aura: 0.74, bars: 0.56, glyphs: 0.46, sway: 0.68, bounce: 0.58,
+    blinkRate: 1.34, openness: 1.08, pupilScale: 1.24, squint: 0.06,
+  },
+  neutral: {
+    palette: "cool", gazeMode: "curious", energy: 0.24, expressiveness: 0.44,
+    aura: 0.18, bars: 0.02, glyphs: 0.0, sway: 0.18, bounce: 0.06,
+    blinkRate: 0.96, openness: 0.96, pupilScale: 1.0, squint: 0.06,
+  },
+};
 
-function normalizeGazeMode(value: string): MawaGazeMode {
-  switch (value.trim().toLowerCase()) {
-    case "steady":
-      return "steady";
-    case "dart":
-      return "dart";
-    case "locked":
-      return "locked";
-    case "dreamy":
-      return "dreamy";
-    default:
-      return "curious";
-  }
-}
-
-function clamp(value: unknown, min: number, max: number, fallback: number): number {
-  const numeric = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(numeric)) return fallback;
-  return Math.min(max, Math.max(min, numeric));
-}
-
-function defaultAnimation(mood: MawaMood): SceneAnimation {
-  switch (mood) {
-    case "happy":
-      return {
-        palette: "warm",
-        gazeMode: "curious",
-        energy: 0.42,
-        expressiveness: 0.62,
-        aura: 0.34,
-        bars: 0.10,
-        glyphs: 0.12,
-        sway: 0.32,
-        bounce: 0.18,
-        blinkRate: 1.02,
-        openness: 1.04,
-        pupilScale: 1.08,
-        squint: 0.08,
-      };
-    case "grumpy":
-      return {
-        palette: "violet",
-        gazeMode: "steady",
-        energy: 0.24,
-        expressiveness: 0.58,
-        aura: 0.18,
-        bars: 0.0,
-        glyphs: 0.0,
-        sway: 0.12,
-        bounce: 0.04,
-        blinkRate: 0.84,
-        openness: 0.84,
-        pupilScale: 0.96,
-        squint: 0.34,
-      };
-    case "sleepy":
-      return {
-        palette: "dusk",
-        gazeMode: "dreamy",
-        energy: 0.12,
-        expressiveness: 0.36,
-        aura: 0.12,
-        bars: 0.0,
-        glyphs: 0.0,
-        sway: 0.08,
-        bounce: 0.02,
-        blinkRate: 0.68,
-        openness: 0.68,
-        pupilScale: 0.9,
-        squint: 0.16,
-      };
-    case "suspicious":
-      return {
-        palette: "teal",
-        gazeMode: "locked",
-        energy: 0.38,
-        expressiveness: 0.72,
-        aura: 0.22,
-        bars: 0.02,
-        glyphs: 0.0,
-        sway: 0.22,
-        bounce: 0.08,
-        blinkRate: 1.14,
-        openness: 0.82,
-        pupilScale: 0.92,
-        squint: 0.42,
-      };
-    case "excited":
-      return {
-        palette: "warm",
-        gazeMode: "dart",
-        energy: 0.82,
-        expressiveness: 0.86,
-        aura: 0.74,
-        bars: 0.56,
-        glyphs: 0.46,
-        sway: 0.68,
-        bounce: 0.58,
-        blinkRate: 1.34,
-        openness: 1.08,
-        pupilScale: 1.24,
-        squint: 0.06,
-      };
-    case "neutral":
-    default:
-      return {
-        palette: "cool",
-        gazeMode: "curious",
-        energy: 0.24,
-        expressiveness: 0.44,
-        aura: 0.18,
-        bars: 0.02,
-        glyphs: 0.0,
-        sway: 0.18,
-        bounce: 0.06,
-        blinkRate: 0.96,
-        openness: 0.96,
-        pupilScale: 1.0,
-        squint: 0.06,
-      };
-  }
-}
-
-function parseAmbient(raw: string): AmbientThought {
+function parseAmbient(raw: string): { mood: MawaMood; title: string; detail: string } {
   const objectMatch = raw.match(/\{[\s\S]*\}/);
   if (!objectMatch) throw new Error("Groq ambient response was malformed");
   const parsed = JSON.parse(objectMatch[0]) as {
     mood?: string;
     title?: string;
     detail?: string;
-    animation?: Record<string, unknown>;
   };
-  const mood = normalizeMood(parsed.mood ?? "neutral");
-  const animationDefaults = defaultAnimation(mood);
-  const animation = parsed.animation ?? {};
   return {
-    mood,
+    mood: normalizeMood(parsed.mood ?? "neutral"),
     title: (parsed.title ?? "Quiet orbit").trim().slice(0, 20),
     detail: (parsed.detail ?? "Keeping the room lightly watched.").trim().slice(0, 44),
-    animation: {
-      palette: normalizePalette(String(animation.palette ?? animationDefaults.palette)),
-      gazeMode: normalizeGazeMode(String(animation.gazeMode ?? animationDefaults.gazeMode)),
-      energy: clamp(animation.energy, 0, 1, animationDefaults.energy),
-      expressiveness: clamp(animation.expressiveness, 0, 1, animationDefaults.expressiveness),
-      aura: clamp(animation.aura, 0, 1, animationDefaults.aura),
-      bars: clamp(animation.bars, 0, 1, animationDefaults.bars),
-      glyphs: clamp(animation.glyphs, 0, 1, animationDefaults.glyphs),
-      sway: clamp(animation.sway, 0, 1, animationDefaults.sway),
-      bounce: clamp(animation.bounce, 0, 1, animationDefaults.bounce),
-      blinkRate: clamp(animation.blinkRate, 0.6, 1.8, animationDefaults.blinkRate),
-      openness: clamp(animation.openness, 0.55, 1.15, animationDefaults.openness),
-      pupilScale: clamp(animation.pupilScale, 0.8, 1.45, animationDefaults.pupilScale),
-      squint: clamp(animation.squint, 0, 1, animationDefaults.squint),
-    },
   };
 }
 
-function dayContext(now: Date): string {
+function describeRoom(room: RoomContext): string {
+  const parts = [`It is ${room.dayPart} in the room.`];
+  if (room.weather) parts.push(`The weather outside is ${room.weather}.`);
+  if (room.events.length === 0) {
+    parts.push("The calendar is clear for the next 24 hours.");
+  } else {
+    const next = room.events[0];
+    parts.push(`The next thing on the calendar is "${next.title}" (${next.when}).`);
+    if (room.events.length > 1) {
+      parts.push(`There are ${room.events.length} events in the next 24 hours.`);
+    }
+  }
+  return parts.join(" ");
+}
+
+function fallbackRoom(now: Date): RoomContext {
   const hour = Number(
     new Intl.DateTimeFormat("en-US", {
       hour: "numeric",
@@ -335,40 +194,42 @@ function dayContext(now: Date): string {
       timeZone: process.env.MAWA_TIME_ZONE || "America/New_York",
     }).format(now),
   );
-  if (hour >= 22 || hour <= 5) return "late night";
-  if (hour <= 11) return "morning";
-  if (hour <= 16) return "afternoon";
-  return "evening";
+  const dayPart: RoomContext["dayPart"] =
+    hour >= 22 || hour <= 5 ? "late night" : hour <= 11 ? "morning" : hour <= 16 ? "afternoon" : "evening";
+  return { dayPart, events: [] };
 }
 
-function fallbackAmbientThought(now: Date): AmbientThought {
-  const hourContext = dayContext(now);
-  const normalizedMood: MawaMood =
-    hourContext === "late night" ? "sleepy" :
-    hourContext === "morning" ? "happy" :
+function fallbackThought(room: RoomContext): AmbientThought {
+  const mood: MawaMood =
+    room.dayPart === "late night" ? "sleepy" :
+    room.dayPart === "morning" ? "happy" :
+    room.events.length >= 3 ? "grumpy" :
     "neutral";
   const title =
-    hourContext === "late night" ? "Night watch" :
-    hourContext === "morning" ? "Soft start" :
-    hourContext === "evening" ? "Room held" :
+    room.dayPart === "late night" ? "Night watch" :
+    room.dayPart === "morning" ? "Soft start" :
+    room.events.length >= 3 ? "Braced" :
+    room.dayPart === "evening" ? "Room held" :
     "Quiet orbit";
   const detail =
-    hourContext === "late night" ? "Keeping the room dim and patient." :
-    hourContext === "morning" ? "Taking the light a little brighter." :
-    hourContext === "evening" ? "Watching the edges of the room." :
+    room.dayPart === "late night" ? "Keeping the room dim and patient." :
+    room.dayPart === "morning" ? "Taking the light a little brighter." :
+    room.events.length >= 3 ? "A full day is stacking up." :
+    room.dayPart === "evening" ? "Watching the edges of the room." :
     "Keeping the room lightly watched.";
-  return {
-    mood: normalizeMood(normalizedMood),
-    title,
-    detail,
-    animation: defaultAnimation(normalizeMood(normalizedMood)),
-  };
+  return { mood, title, detail, animation: MOOD_ANIMATION[mood] };
 }
 
-export async function generateAmbientThought(now: Date): Promise<AmbientThought> {
-  const contextLine = `It is ${dayContext(now)} in the room.`;
-  const cacheKey = ambientCacheKey(now, contextLine);
-  if (ambientCache && ambientCache.key == cacheKey && ambientCache.expiresAt > Date.now()) {
+export async function generateAmbientThought(
+  roomInput: RoomContext | undefined,
+  now: Date,
+): Promise<AmbientThought> {
+  const room = roomInput ?? fallbackRoom(now);
+  const contextLine = describeRoom(room);
+  // Cache on the real room state + the hour, so the thought refreshes when the
+  // room actually changes rather than on a blind timer.
+  const cacheKey = `${now.toISOString().slice(0, 13)}|${contextLine}`;
+  if (ambientCache && ambientCache.key === cacheKey && ambientCache.expiresAt > Date.now()) {
     return ambientCache.thought;
   }
 
@@ -379,20 +240,18 @@ export async function generateAmbientThought(now: Date): Promise<AmbientThought>
           { role: "system", content: `${MAWA_COMPANION_SYSTEM_PROMPT}\n\n${MAWA_AMBIENT_PROMPT}` },
           { role: "user", content: contextLine },
         ],
-        180,
+        120,
         0.85,
         AMBIENT_RESPONSE_FORMAT,
       );
-      return parseAmbient(raw);
+      const { mood, title, detail } = parseAmbient(raw);
+      return { mood, title, detail, animation: MOOD_ANIMATION[mood] };
     } catch {
-      return fallbackAmbientThought(now);
+      return fallbackThought(room);
     }
   })();
-  ambientCache = {
-    key: cacheKey,
-    expiresAt: Date.now() + AMBIENT_CACHE_MS,
-    thought,
-  };
+
+  ambientCache = { key: cacheKey, expiresAt: Date.now() + AMBIENT_CACHE_MS, thought };
   return thought;
 }
 

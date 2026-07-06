@@ -30,8 +30,9 @@ release; the app self-updates over the air (checks every 15 min). See
 - [x] Kotlin app, plain Canvas renderer, fullscreen immersive, screen-on
 - [x] `sensorLandscape` so it works mounted in either direction
 - [x] Pure black OLED background
-- [x] Two capsule eyes; animation engine, all eased (blinks + double-blinks,
-      micro-saccades, idle wander, slow burn-in drift)
+- [x] Two capsule eyes; human-eye engine: fixate-then-saccade gaze (ballistic
+      spring, holds between shifts), vergence, asymmetric blinks, per-eye tremor,
+      breathing, gaze aversion, idle wander, slow burn-in drift
 - [x] CameraX + ML Kit face detection, front camera, ~5 fps, fully on-device
 - [x] Gaze mapping: mirror correction + smoothing + landscape offset
 - [x] **One-touch calibration**: long-press → learns your spot, saved on device
@@ -90,16 +91,15 @@ release; the app self-updates over the air (checks every 15 min). See
       private connector panels are withheld from public dashboard previews
 - [x] LLM personality via pluggable provider — **Groq free tier by default**
       (dashboard tester + manifest thought panel now live; voice loop still pending)
-- [x] Encrypt OAuth tokens at rest; read-only scopes only
+- [x] Personality grounded in real room context (time, weather, next calendar
+      events); model returns mood + thought only, animation derived from mood
 
 ### Phase 3 — Useful connectors
-- [x] Dual Google Calendar OAuth connector: separate Personal and Work account
-      slots, encrypted refresh tokens, dashboard connect/disconnect controls,
-      next-event panels, private-device-only output
-- [ ] Create Google OAuth web credentials and add prod envs:
-      `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `MAWA_SIGNING_SECRET`,
-      `MAWA_STATE_ENCRYPTION_SECRET`, and a
-      private `BLOB_READ_WRITE_TOKEN`
+- [x] Personal and Work calendars via **secret iCal URL** (keyless — no OAuth,
+      no client credentials, no stored tokens); next-event panels,
+      private-device-only output. Replaced the earlier Google OAuth connector.
+- [ ] Add prod envs: `MAWA_CALENDAR_PERSONAL_ICS`, `MAWA_CALENDAR_WORK_ICS`
+      (each calendar's "Secret address in iCal format")
 - [ ] Calendar morning brief and meeting heads-up 10 min prior
 - [ ] Gmail (read-only): important-email mentions (sender allowlist)
 - [ ] Chattiness budget: ≤ ~4 unprompted utterances/day, quiet hours
@@ -139,8 +139,8 @@ release; the app self-updates over the air (checks every 15 min). See
 - Face **detection** on-device (ML Kit); face **recognition** on-device (TFLite
   MobileFaceNet) — no frames ever leave the phone
 - Build/deploy via GitHub Actions + OTA self-update (no Android Studio)
-- **Brain lives in the cloud (Vercel)** — cloud-stored OAuth tokens, read-only
-  scopes, encrypted at rest (chosen over a home box for zero local infra)
+- **Brain lives in the cloud (Vercel)** — zero local infra. Calendars via
+  keyless secret iCal URLs (read-only bearer capability), no OAuth/token storage
 - Connector/manifest architecture: connect apps in a dashboard, phone renders
   auto-arranged panels
 - LLM: Groq free tier by default behind a pluggable provider
