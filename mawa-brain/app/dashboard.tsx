@@ -236,8 +236,15 @@ export function Dashboard() {
                       <button
                         onClick={() => window.location.assign(`/api/google/connect?slot=${slot.slot}`)}
                         disabled={!googleStatus.ready}
+                        title={
+                          !googleStatus.ready
+                            ? `Google OAuth not configured: ${
+                                googleStatus?.missing.join(", ") || "missing environment"
+                              }`
+                            : undefined
+                        }
                       >
-                        Connect Google Account
+                        {googleStatus.ready ? "Connect Google Account" : "Google OAuth Not Configured"}
                       </button>
                     )}
                   </div>
