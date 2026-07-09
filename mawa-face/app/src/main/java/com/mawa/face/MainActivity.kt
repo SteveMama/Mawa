@@ -251,6 +251,9 @@ class MainActivity : ComponentActivity() {
                     eyeView.scenePanels = snapshot.panels
                     eyeView.cloudAnimation = snapshot.animation
                     eyeView.engine.cloudMood = snapshot.mood
+                    eyeView.engine.cloudStance = snapshot.companionStance
+                    eyeView.engine.cloudIntent = snapshot.companionIntent
+                    eyeView.engine.cloudAttention = snapshot.companionAttention
                     currentManifestId = snapshot.manifestId
                     snapshot.panels.firstOrNull { it.id == "mawa-thought" }?.let { panel ->
                         currentThoughtEyebrow = panel.eyebrow

@@ -157,6 +157,7 @@ class EyeView @JvmOverloads constructor(
         val cy = height / 2f + engine.driftY
         val eyeGap = width * 0.28f
 
+        drawCompanionExpressionBackdrop(canvas, cx, cy, eyeGap, dt)
         drawMusicBackdrop(canvas, cx, cy, eyeGap, dt)
         drawAtmosphere(canvas, cx, cy, eyeGap, dt)
         drawEye(canvas, cx - eyeGap / 2f, cy, engine.left)
@@ -228,6 +229,47 @@ class EyeView @JvmOverloads constructor(
         }
 
         musicPhase += dt
+    }
+
+    private fun drawCompanionExpressionBackdrop(canvas: Canvas, cx: Float, cy: Float, eyeGap: Float, dt: Float) {
+        val protective = engine.protectiveLevel()
+        val warmth = engine.warmthLevel()
+        val playful = engine.playfulLevel()
+        val study = engine.studyLevel()
+        val palette = paletteColors(engine.palette())
+
+        if (warmth > 0.08f) {
+            auraPaint.color = Color.argb(
+                (18 + 74 * warmth).toInt().coerceIn(0, 150),
+                Color.red(palette.secondary),
+                Color.green(palette.secondary),
+                Color.blue(palette.secondary),
+            )
+            val radius = width * (0.09f + warmth * 0.05f)
+            canvas.drawCircle(cx - eyeGap / 2f, cy + height * 0.01f, radius, auraPaint)
+            canvas.drawCircle(cx + eyeGap / 2f, cy + height * 0.01f, radius, auraPaint)
+        }
+
+        if (protective > 0.08f || study > 0.08f) {
+            focusPaint.alpha = (50 + 110 * maxOf(protective, study)).toInt().coerceIn(0, 190)
+            val sweep = (0.5f + 0.5f * sin(musicPhase * (1.1f + study * 0.8f))).coerceIn(0f, 1f)
+            val y = cy - height * 0.18f + sweep * height * 0.36f
+            canvas.drawLine(cx - width * 0.24f, y, cx + width * 0.24f, y, focusPaint)
+        }
+
+        if (playful > 0.12f) {
+            barPaint.color = palette.secondary
+            barPaint.alpha = (28 + 80 * playful).toInt().coerceIn(0, 160)
+            val dotCount = 5
+            for (index in 0 until dotCount) {
+                val phase = musicPhase * 2.8f + index * 0.9f
+                val x = cx + sin(phase).toFloat() * width * (0.12f + index * 0.01f)
+                val y = cy - height * 0.19f + cos(phase.toDouble()).toFloat() * height * 0.05f
+                canvas.drawCircle(x, y, width * (0.004f + playful * 0.002f), barPaint)
+            }
+        }
+
+        musicPhase += dt * (0.15f + playful * 0.10f + study * 0.05f)
     }
 
     private fun drawAtmosphere(canvas: Canvas, cx: Float, cy: Float, eyeGap: Float, dt: Float) {

@@ -2,6 +2,8 @@ package com.mawa.face.net
 
 import android.util.Log
 import com.mawa.face.render.CloudAnimation
+import com.mawa.face.render.CloudCompanionIntent
+import com.mawa.face.render.CloudCompanionStance
 import com.mawa.face.render.CloudGazeMode
 import com.mawa.face.render.CloudPalette
 import com.mawa.face.render.Mood
@@ -22,6 +24,9 @@ data class SceneSnapshot(
     val companionLine: String?,
     val companionLineKey: String?,
     val companionSpeechStyle: String?,
+    val companionStance: CloudCompanionStance,
+    val companionIntent: CloudCompanionIntent,
+    val companionAttention: String,
     val panels: List<ScenePanel>,
     val pollAfterSeconds: Int,
 )
@@ -136,6 +141,7 @@ class SceneManifestClient(
             ?.let(::weatherCondition)
         val speech = scene.optJSONObject("companion")
             ?.optJSONObject("speech")
+        val companion = scene.optJSONObject("companion")
         val rawPanels = scene.optJSONArray("panels")
         val panels = buildList {
             if (rawPanels != null) {
@@ -162,6 +168,9 @@ class SceneManifestClient(
             companionLine = speech?.optString("text")?.takeIf { !it.isNullOrBlank() }?.take(96),
             companionLineKey = speech?.optString("key")?.takeIf { !it.isNullOrBlank() }?.take(64),
             companionSpeechStyle = speech?.optString("style")?.takeIf { !it.isNullOrBlank() }?.take(20),
+            companionStance = stanceOf(companion?.optString("stance", "watchful") ?: "watchful"),
+            companionIntent = intentOf(companion?.optString("intent", "observe") ?: "observe"),
+            companionAttention = companion?.optString("attention", "wandering")?.take(28) ?: "wandering",
             panels = panels,
             pollAfterSeconds = root.optInt("pollAfterSeconds", 300).coerceIn(60, 1800),
         )
@@ -207,6 +216,28 @@ class SceneManifestClient(
         "locked" -> CloudGazeMode.LOCKED
         "dreamy" -> CloudGazeMode.DREAMY
         else -> CloudGazeMode.CURIOUS
+    }
+
+    private fun stanceOf(value: String): CloudCompanionStance = when (value.lowercase()) {
+        "dry" -> CloudCompanionStance.DRY
+        "warm" -> CloudCompanionStance.WARM
+        "playful" -> CloudCompanionStance.PLAYFUL
+        "protective" -> CloudCompanionStance.PROTECTIVE
+        "amused" -> CloudCompanionStance.AMUSED
+        "tender" -> CloudCompanionStance.TENDER
+        "braced" -> CloudCompanionStance.BRACED
+        else -> CloudCompanionStance.WATCHFUL
+    }
+
+    private fun intentOf(value: String): CloudCompanionIntent = when (value.lowercase()) {
+        "welcome" -> CloudCompanionIntent.WELCOME
+        "guard" -> CloudCompanionIntent.GUARD
+        "tease" -> CloudCompanionIntent.TEASE
+        "comfort" -> CloudCompanionIntent.COMFORT
+        "admire_music" -> CloudCompanionIntent.ADMIRE_MUSIC
+        "study" -> CloudCompanionIntent.STUDY
+        "rest" -> CloudCompanionIntent.REST
+        else -> CloudCompanionIntent.OBSERVE
     }
 
     private fun panelSlot(value: String): PanelSlot = when (value) {

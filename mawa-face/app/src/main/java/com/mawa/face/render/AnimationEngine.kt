@@ -58,6 +58,9 @@ class AnimationEngine {
     var mood: Mood = Mood.NEUTRAL
     var cloudMood: Mood? = null
     var cloudAnimation: CloudAnimation? = null
+    var cloudStance: CloudCompanionStance = CloudCompanionStance.WATCHFUL
+    var cloudIntent: CloudCompanionIntent = CloudCompanionIntent.OBSERVE
+    var cloudAttention: String = "wandering"
     var identityLockEnabled = false
 
     // --- gaze: spring-driven position + discrete saccade target -----------
@@ -207,8 +210,40 @@ class AnimationEngine {
 
     fun palette(): CloudPalette = activeCloudAnimation()?.palette ?: CloudPalette.COOL
 
+    fun stance(): CloudCompanionStance = cloudStance
+
+    fun intent(): CloudCompanionIntent = cloudIntent
+
+    fun attention(): String = cloudAttention
+
+    fun protectiveLevel(): Float = when (cloudStance) {
+        CloudCompanionStance.PROTECTIVE, CloudCompanionStance.BRACED -> 1f
+        CloudCompanionStance.WATCHFUL -> 0.45f
+        else -> 0f
+    }
+
+    fun warmthLevel(): Float = when (cloudStance) {
+        CloudCompanionStance.WARM, CloudCompanionStance.TENDER -> 1f
+        else -> 0f
+    }
+
+    fun playfulLevel(): Float = when (cloudStance) {
+        CloudCompanionStance.PLAYFUL, CloudCompanionStance.AMUSED -> 1f
+        else -> 0f
+    }
+
+    fun studyLevel(): Float = when (cloudIntent) {
+        CloudCompanionIntent.STUDY, CloudCompanionIntent.GUARD -> 1f
+        else -> 0f
+    }
+
     fun shouldShowFocusFrame(): Boolean =
-        identityLockEnabled && !sleeping && SystemClock.elapsedRealtime() < focusFrameUntil
+        (
+            identityLockEnabled ||
+                cloudStance == CloudCompanionStance.PROTECTIVE ||
+                cloudIntent == CloudCompanionIntent.STUDY ||
+                cloudIntent == CloudCompanionIntent.GUARD
+            ) && !sleeping && SystemClock.elapsedRealtime() < focusFrameUntil
 
     fun guardedRecently(): Boolean = SystemClock.elapsedRealtime() < guardUntil
 
@@ -223,6 +258,10 @@ class AnimationEngine {
         grooveLevel = (grooveLevel - dtSec * 0.68f).coerceAtLeast(0f)
         val visualEnergy = maxOf(grooveLevel, cloud?.energy ?: 0f)
         val expressiveness = expressivenessLevel()
+        val protective = protectiveLevel()
+        val playful = playfulLevel()
+        val warmth = warmthLevel()
+        val study = studyLevel()
 
         // Sleep when the room goes dark, or after 10 min without a face.
         sleeping = ambientDark || (now - faceLastSeenAt > SLEEP_AFTER_MS)
@@ -244,6 +283,7 @@ class AnimationEngine {
         } else {
             styleMood.opennessBase * blinkStyleScale(styleMood)
         }
+        opennessTarget += warmth * 0.06f + playful * 0.04f - protective * 0.05f - study * 0.03f
         opennessTarget = (opennessTarget * (cloud?.openness ?: 1f) - (cloud?.squint ?: 0f) * 0.22f)
             .coerceIn(0f, 1.1f)
         opennessTarget = (opennessTarget + visualEnergy * 0.09f * (0.5f + 0.5f *
@@ -262,7 +302,9 @@ class AnimationEngine {
         var pupilTarget = if (startled) 0.7f else styleMood.pupilScale *
             (1f + 0.25f * lastProx.coerceAtMost(0.4f) + 0.42f * beatPulse + 0.18f * visualEnergy) *
             (cloud?.pupilScale ?: 1f)
+        pupilTarget = (pupilTarget + playful * 0.07f - warmth * 0.03f - study * 0.04f).coerceIn(0.78f, 1.55f)
         var lidTarget = if (startled) 8f else styleMood.lidAngle + (cloud?.squint ?: 0f) * 8f
+        lidTarget += protective * 3.6f + study * 2.4f - warmth * 1.8f - playful * 1.2f
 
         // Blink shape (per eye) and one-shot LOCK_ON scripting.
         var leftOpen = openBase * blinkFactor(clock, blinkFloor)
@@ -286,14 +328,17 @@ class AnimationEngine {
 
         val expressionWave = sin(clock * 2.0 * Math.PI * 0.37).toFloat() * expressiveness
         val expressionLift = sin(clock * 2.0 * Math.PI * 0.71 + 1.1).toFloat() * expressiveness
-        leftOpen = (leftOpen + expressionWave * 0.045f + beatPulse * 0.018f).coerceIn(0f, 1.12f)
-        rightOpen = (rightOpen - expressionWave * 0.038f + beatPulse * 0.012f).coerceIn(0f, 1.12f)
-        val leftLidTarget = lidTarget + expressionWave * 5.5f + expressionLift * 2.2f
-        val rightLidTarget = -lidTarget + expressionWave * 3.8f - expressionLift * 2.0f
+        leftOpen = (leftOpen + expressionWave * (0.045f + playful * 0.015f) + beatPulse * 0.018f + warmth * 0.025f)
+            .coerceIn(0f, 1.12f)
+        rightOpen = (rightOpen - expressionWave * (0.038f + playful * 0.010f) + beatPulse * 0.012f + warmth * 0.018f)
+            .coerceIn(0f, 1.12f)
+        val leftLidTarget = lidTarget + expressionWave * (5.5f + playful * 1.8f) + expressionLift * 2.2f
+        val rightLidTarget = -lidTarget + expressionWave * (3.8f + playful * 1.4f) - expressionLift * 2.0f
 
         // Independent ocular tremor keeps fixations alive without reading as jitter.
         tremorClock += dtSec
-        val tremorAmp = if (sleeping) 0f else TREMOR_AMP * (0.55f + 0.35f * visualEnergy + 0.45f * expressiveness)
+        val tremorAmp = if (sleeping) 0f else TREMOR_AMP *
+            (0.55f + 0.35f * visualEnergy + 0.45f * expressiveness + playful * 0.25f - study * 0.18f)
         val tLX = sin(tremorClock * 41f).toFloat() * tremorAmp + (Random.nextFloat() - 0.5f) * tremorAmp * 0.5f
         val tRX = sin(tremorClock * 37f + 1.7f).toFloat() * tremorAmp + (Random.nextFloat() - 0.5f) * tremorAmp * 0.5f
         val tLY = sin(tremorClock * 29f + 0.6f).toFloat() * tremorAmp
@@ -305,12 +350,12 @@ class AnimationEngine {
         // Burn-in drift: whole face wanders +-12 px over a ~10 min cycle
         val slowDriftX = (12.0 * sin(clock * 2.0 * Math.PI / 600.0)).toFloat()
         val slowDriftY = (12.0 * sin(clock * 2.0 * Math.PI / 470.0 + 1.3)).toFloat()
-        val swayLevel = maxOf(grooveLevel, cloud?.sway ?: 0f)
-        val bounceLevel = maxOf(grooveLevel, cloud?.bounce ?: 0f)
+        val swayLevel = maxOf(grooveLevel, cloud?.sway ?: 0f) + warmth * 0.08f + playful * 0.12f
+        val bounceLevel = maxOf(grooveLevel, cloud?.bounce ?: 0f) + playful * 0.10f
         val grooveSway = sin(clock * 2.0 * Math.PI * (1.2 + expressiveness * 1.4)).toFloat() * 8f * swayLevel
         val grooveBounce = (0.4f + 0.6f * sin(clock * 2.0 * Math.PI * 3.2).toFloat()) *
             16f * bounceLevel
-        val theatricalLean = sin(clock * 2.0 * Math.PI * 0.23 + 0.8).toFloat() * 6f * expressiveness
+        val theatricalLean = sin(clock * 2.0 * Math.PI * 0.23 + 0.8).toFloat() * 6f * (expressiveness + warmth * 0.22f)
         // A gentle breathing bob so the whole face rises and falls when at rest.
         val breathBob = if (sleeping) 0f else sin(clock * 2.0 * Math.PI * BREATH_HZ).toFloat() * 3.5f
         driftX = slowDriftX + grooveSway + theatricalLean
@@ -346,7 +391,23 @@ class AnimationEngine {
 
         // Idle wander: pick a fresh fixation on a cadence set by the gaze mode.
         if (clock >= nextShiftAt) {
-            when (cloud?.gazeMode ?: CloudGazeMode.CURIOUS) {
+            when {
+                cloudStance == CloudCompanionStance.TENDER || cloudIntent == CloudCompanionIntent.REST -> {
+                    aimX = Random.nextFloat() * 0.56f - 0.28f
+                    aimY = -0.10f + Random.nextFloat() * 0.20f
+                    nextShiftAt = clock + 3.2 + Random.nextDouble() * 3.4
+                }
+                cloudStance == CloudCompanionStance.PLAYFUL || cloudStance == CloudCompanionStance.AMUSED -> {
+                    aimX = Random.nextFloat() * 1.85f - 0.92f
+                    aimY = Random.nextFloat() * 1.05f - 0.52f
+                    nextShiftAt = clock + 0.55 + Random.nextDouble() * 1.15
+                }
+                cloudStance == CloudCompanionStance.PROTECTIVE || cloudIntent == CloudCompanionIntent.GUARD || cloudIntent == CloudCompanionIntent.STUDY -> {
+                    aimX = Random.nextFloat() * 0.28f - 0.14f
+                    aimY = Random.nextFloat() * 0.14f - 0.07f
+                    nextShiftAt = clock + 1.35 + Random.nextDouble() * 1.5
+                }
+                else -> when (cloud?.gazeMode ?: CloudGazeMode.CURIOUS) {
                 CloudGazeMode.STEADY -> {
                     aimX = Random.nextFloat() * 0.44f - 0.22f
                     aimY = Random.nextFloat() * 0.26f - 0.13f
@@ -371,6 +432,7 @@ class AnimationEngine {
                     aimX = Random.nextFloat() * 1.6f - 0.8f
                     aimY = Random.nextFloat() * 1.0f - 0.5f
                     nextShiftAt = clock + 1.0 + Random.nextDouble() * 3.0
+                }
                 }
             }
             // We usually blink through a big gaze shift, like a real eye.
