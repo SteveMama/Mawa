@@ -97,6 +97,8 @@ class MainActivity : ComponentActivity() {
     private var currentThoughtTitle: String? = null
     private var currentThoughtDetail: String? = null
     private var currentThoughtAccent: String? = null
+    private var lastCompanionLineKey: String? = null
+    private var lastCompanionSpeechAtMs = 0L
 
     // Blink-back edge detection
     private var prevEyeOpen = 1f
@@ -261,6 +263,7 @@ class MainActivity : ComponentActivity() {
                         currentThoughtDetail = null
                         currentThoughtAccent = null
                     }
+                    maybeSpeakCompanionLine(snapshot.companionLine, snapshot.companionLineKey, snapshot.companionSpeechStyle)
                     scenePollMs = (snapshot.pollAfterSeconds * 1000L).coerceIn(60_000L, 10 * 60_000L)
                     brainStatus = "brain: online  ${snapshot.manifestId}"
                 }.onFailure { error ->
@@ -557,6 +560,22 @@ class MainActivity : ComponentActivity() {
             timeZone = TimeZone.getTimeZone("UTC")
         }.format(java.util.Date())
 
+    private fun maybeSpeakCompanionLine(
+        line: String?,
+        key: String?,
+        style: String?,
+    ) {
+        val text = line?.trim()?.takeIf { it.isNotEmpty() } ?: return
+        val lineKey = key?.trim()?.takeIf { it.isNotEmpty() } ?: text.lowercase(Locale.US)
+        val now = SystemClock.elapsedRealtime()
+        if (lineKey == lastCompanionLineKey && now - lastCompanionSpeechAtMs < 10 * 60_000L) return
+        if (now - lastCompanionSpeechAtMs < COMPANION_SPEECH_COOLDOWN_MS) return
+        if (eyeView.engine.covered || eyeView.engine.isSleeping()) return
+        lastCompanionLineKey = lineKey
+        lastCompanionSpeechAtMs = now
+        speech.say(text, style ?: "measured")
+    }
+
     private fun recognitionSummary(): String {
         val gallery = latestObservedPersonId?.let { id ->
             val label = latestObservedPersonLabel ?: id
@@ -726,6 +745,7 @@ class MainActivity : ComponentActivity() {
         private const val UPDATE_CHECK_MS = 15 * 60 * 1000L
         private const val SCENE_CHECK_MS = 5 * 60 * 1000L
         private const val TELEMETRY_PUSH_MS = 12_000L
+        private const val COMPANION_SPEECH_COOLDOWN_MS = 80_000L
         private const val GREET_GAP_MS = 30 * 60 * 1000L
         private const val DARK_LUX = 6f
         private const val COVERED_LUMA = 12f

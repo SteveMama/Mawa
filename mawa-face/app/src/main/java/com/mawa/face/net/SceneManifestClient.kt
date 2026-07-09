@@ -19,6 +19,9 @@ data class SceneSnapshot(
     val mood: Mood?,
     val animation: CloudAnimation?,
     val weather: WeatherCondition?,
+    val companionLine: String?,
+    val companionLineKey: String?,
+    val companionSpeechStyle: String?,
     val panels: List<ScenePanel>,
     val pollAfterSeconds: Int,
 )
@@ -131,6 +134,8 @@ class SceneManifestClient(
         val weather = scene.optJSONObject("weather")
             ?.optString("condition")
             ?.let(::weatherCondition)
+        val speech = scene.optJSONObject("companion")
+            ?.optJSONObject("speech")
         val rawPanels = scene.optJSONArray("panels")
         val panels = buildList {
             if (rawPanels != null) {
@@ -154,6 +159,9 @@ class SceneManifestClient(
             mood = mood,
             animation = animation,
             weather = weather,
+            companionLine = speech?.optString("text")?.takeIf { !it.isNullOrBlank() }?.take(96),
+            companionLineKey = speech?.optString("key")?.takeIf { !it.isNullOrBlank() }?.take(64),
+            companionSpeechStyle = speech?.optString("style")?.takeIf { !it.isNullOrBlank() }?.take(20),
             panels = panels,
             pollAfterSeconds = root.optInt("pollAfterSeconds", 300).coerceIn(60, 1800),
         )

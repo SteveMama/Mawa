@@ -1,18 +1,27 @@
 import { MAWA_AMBIENT_PROMPT, MAWA_COMPANION_SYSTEM_PROMPT } from "./prompt";
-import type { MawaMood, RoomContext, SceneAnimation } from "../manifest";
+import type {
+  CompanionDirective,
+  CompanionIntent,
+  CompanionSpeechStyle,
+  CompanionStance,
+  MawaMood,
+  RoomContext,
+  SceneAnimation,
+} from "../manifest";
 
 interface GroqMessage {
   role: "system" | "user" | "assistant";
   content: string;
 }
 
-interface AmbientThought {
+export interface AmbientThought {
   mood: MawaMood;
   eyebrow: string;
   title: string;
   detail: string;
   accent: string;
   animation: SceneAnimation;
+  companion: CompanionDirective;
 }
 
 interface GroqChatResponse {
@@ -29,67 +38,6 @@ interface GroqChatResponse {
 const GROQ_BASE_URL = "https://api.groq.com/openai/v1/chat/completions";
 const AMBIENT_CACHE_MS = 3 * 60_000;
 let ambientCache: { key: string; expiresAt: number; thought: AmbientThought } | null = null;
-
-const AMBIENT_RESPONSE_FORMAT = {
-  type: "json_schema",
-  json_schema: {
-    name: "mawa_ambient_direction",
-    strict: true,
-    schema: {
-      type: "object",
-      additionalProperties: false,
-      required: ["mood", "eyebrow", "title", "detail", "accent", "animation"],
-      properties: {
-        mood: {
-          type: "string",
-          enum: ["neutral", "happy", "grumpy", "sleepy", "suspicious", "excited"],
-        },
-        eyebrow: { type: "string" },
-        title: { type: "string" },
-        detail: { type: "string" },
-        accent: { type: "string" },
-        animation: {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "palette",
-            "gazeMode",
-            "energy",
-            "expressiveness",
-            "aura",
-            "bars",
-            "glyphs",
-            "sway",
-            "bounce",
-            "blinkRate",
-            "openness",
-            "pupilScale",
-            "squint",
-          ],
-          properties: {
-            palette: { type: "string", enum: ["cool", "warm", "violet", "teal", "dusk"] },
-            gazeMode: { type: "string", enum: ["steady", "curious", "dart", "locked", "dreamy"] },
-            energy: { type: "number", minimum: 0, maximum: 1 },
-            expressiveness: { type: "number", minimum: 0, maximum: 1 },
-            aura: { type: "number", minimum: 0, maximum: 1 },
-            bars: { type: "number", minimum: 0, maximum: 1 },
-            glyphs: { type: "number", minimum: 0, maximum: 1 },
-            sway: { type: "number", minimum: 0, maximum: 1 },
-            bounce: { type: "number", minimum: 0, maximum: 1 },
-            blinkRate: { type: "number", minimum: 0.6, maximum: 1.8 },
-            openness: { type: "number", minimum: 0.55, maximum: 1.15 },
-            pupilScale: { type: "number", minimum: 0.8, maximum: 1.45 },
-            squint: { type: "number", minimum: 0, maximum: 1 },
-          },
-        },
-      },
-    },
-  },
-} as const;
-
-const AMBIENT_JSON_OBJECT_FORMAT = {
-  type: "json_object",
-} as const;
 
 const STRICT_STRUCTURED_MODELS = new Set(["openai/gpt-oss-20b", "openai/gpt-oss-120b"]);
 
@@ -238,6 +186,49 @@ function normalizeGazeMode(value: unknown): SceneAnimation["gazeMode"] {
   }
 }
 
+function normalizeStance(value: unknown): CompanionStance {
+  switch (String(value).trim().toLowerCase()) {
+    case "dry":
+    case "warm":
+    case "playful":
+    case "protective":
+    case "amused":
+    case "tender":
+    case "braced":
+      return String(value).trim().toLowerCase() as CompanionStance;
+    default:
+      return "watchful";
+  }
+}
+
+function normalizeIntent(value: unknown): CompanionIntent {
+  switch (String(value).trim().toLowerCase()) {
+    case "welcome":
+    case "guard":
+    case "tease":
+    case "comfort":
+    case "admire_music":
+    case "study":
+    case "rest":
+      return String(value).trim().toLowerCase() as CompanionIntent;
+    default:
+      return "observe";
+  }
+}
+
+function normalizeSpeechStyle(value: unknown): CompanionSpeechStyle {
+  switch (String(value).trim().toLowerCase()) {
+    case "dry":
+    case "warm":
+    case "playful":
+    case "protective":
+    case "hushed":
+      return String(value).trim().toLowerCase() as CompanionSpeechStyle;
+    default:
+      return "measured";
+  }
+}
+
 function clamp(value: unknown, min: number, max: number, fallback: number): number {
   const numeric = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(numeric)) return fallback;
@@ -285,6 +276,15 @@ function blendAnimation(base: SceneAnimation, candidate: Record<string, unknown>
   };
 }
 
+function speechKeyFrom(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+}
+
 function parseAmbient(raw: string): AmbientThought {
   const objectMatch = raw.match(/\{[\s\S]*\}/);
   if (!objectMatch) throw new Error("Groq ambient response was malformed");
@@ -294,9 +294,19 @@ function parseAmbient(raw: string): AmbientThought {
     title?: string;
     detail?: string;
     accent?: string;
+    stance?: string;
+    intent?: string;
+    attention?: string;
+    speech?: {
+      shouldSpeak?: boolean;
+      text?: string;
+      style?: string;
+    };
     animation?: Record<string, unknown>;
   };
   const mood = normalizeMood(parsed.mood ?? "neutral");
+  const speechText = String(parsed.speech?.text ?? "").trim().slice(0, 72);
+  const shouldSpeak = Boolean(parsed.speech?.shouldSpeak) && speechText.length > 0;
   return {
     mood,
     eyebrow: normalizeEyebrow(parsed.eyebrow),
@@ -304,6 +314,17 @@ function parseAmbient(raw: string): AmbientThought {
     detail: (parsed.detail ?? "Keeping the room lightly watched.").trim().slice(0, 44),
     accent: normalizeAccent(parsed.accent, mood),
     animation: blendAnimation(MOOD_ANIMATION[mood], parsed.animation),
+    companion: {
+      stance: normalizeStance(parsed.stance),
+      intent: normalizeIntent(parsed.intent),
+      attention: String(parsed.attention ?? "wandering").trim().slice(0, 28) || "wandering",
+      speech: {
+        shouldSpeak,
+        text: shouldSpeak ? speechText : undefined,
+        style: normalizeSpeechStyle(parsed.speech?.style),
+        key: shouldSpeak ? speechKeyFrom(speechText) : undefined,
+      },
+    },
   };
 }
 
@@ -323,6 +344,10 @@ function describeRoom(room: RoomContext): string {
     if (workCount > 0) parts.push(`${workCount} of those are work events.`);
     if (personalCount > 0) parts.push(`${personalCount} of those are personal events.`);
   }
+  if (room.memory?.arrivalPattern) parts.push(room.memory.arrivalPattern);
+  if (room.memory?.musicPattern) parts.push(room.memory.musicPattern);
+  if (room.memory?.familiarPresence) parts.push(room.memory.familiarPresence);
+
   const perception = room.perception;
   if (perception) {
     if (perception.covered) parts.push("The camera is covered.");
@@ -420,6 +445,15 @@ function fallbackThought(room: RoomContext): AmbientThought {
     detail,
     accent: normalizeAccent(undefined, mood),
     animation: MOOD_ANIMATION[mood],
+    companion: {
+      stance: mood === "sleepy" ? "tender" : mood === "grumpy" ? "braced" : "watchful",
+      intent: mood === "sleepy" ? "rest" : "observe",
+      attention: mood === "sleepy" ? "softly drifting" : "wandering",
+      speech: {
+        shouldSpeak: false,
+        style: mood === "sleepy" ? "hushed" : "measured",
+      },
+    },
   };
 }
 
@@ -430,12 +464,69 @@ export async function generateAmbientThought(
   const room = roomInput ?? fallbackRoom(now);
   const contextLine = describeRoom(room);
   const model = groqAmbientModel();
-  // Cache on the real room state + the hour, so the thought refreshes when the
-  // room actually changes rather than on a blind timer.
   const cacheKey = `${model}|${now.toISOString().slice(0, 13)}|${contextLine}`;
   if (ambientCache && ambientCache.key === cacheKey && ambientCache.expiresAt > Date.now()) {
     return ambientCache.thought;
   }
+
+  const responseFormat = supportsStrictStructuredOutput(model) ? {
+    type: "json_schema",
+    json_schema: {
+      name: "mawa_ambient_direction",
+      strict: true,
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "mood", "eyebrow", "title", "detail", "accent",
+          "stance", "intent", "attention", "speech", "animation",
+        ],
+        properties: {
+          mood: { type: "string", enum: ["neutral", "happy", "grumpy", "sleepy", "suspicious", "excited"] },
+          eyebrow: { type: "string" },
+          title: { type: "string" },
+          detail: { type: "string" },
+          accent: { type: "string" },
+          stance: { type: "string", enum: ["watchful", "dry", "warm", "playful", "protective", "amused", "tender", "braced"] },
+          intent: { type: "string", enum: ["observe", "welcome", "guard", "tease", "comfort", "admire_music", "study", "rest"] },
+          attention: { type: "string" },
+          speech: {
+            type: "object",
+            additionalProperties: false,
+            required: ["shouldSpeak", "text", "style"],
+            properties: {
+              shouldSpeak: { type: "boolean" },
+              text: { type: "string" },
+              style: { type: "string", enum: ["dry", "warm", "measured", "playful", "protective", "hushed"] },
+            },
+          },
+          animation: {
+            type: "object",
+            additionalProperties: false,
+            required: [
+              "palette", "gazeMode", "energy", "expressiveness", "aura", "bars", "glyphs",
+              "sway", "bounce", "blinkRate", "openness", "pupilScale", "squint",
+            ],
+            properties: {
+              palette: { type: "string", enum: ["cool", "warm", "violet", "teal", "dusk"] },
+              gazeMode: { type: "string", enum: ["steady", "curious", "dart", "locked", "dreamy"] },
+              energy: { type: "number", minimum: 0, maximum: 1 },
+              expressiveness: { type: "number", minimum: 0, maximum: 1 },
+              aura: { type: "number", minimum: 0, maximum: 1 },
+              bars: { type: "number", minimum: 0, maximum: 1 },
+              glyphs: { type: "number", minimum: 0, maximum: 1 },
+              sway: { type: "number", minimum: 0, maximum: 1 },
+              bounce: { type: "number", minimum: 0, maximum: 1 },
+              blinkRate: { type: "number", minimum: 0.6, maximum: 1.8 },
+              openness: { type: "number", minimum: 0.55, maximum: 1.15 },
+              pupilScale: { type: "number", minimum: 0.8, maximum: 1.45 },
+              squint: { type: "number", minimum: 0, maximum: 1 },
+            },
+          },
+        },
+      },
+    },
+  } : { type: "json_object" };
 
   const thought = await (async () => {
     try {
@@ -444,9 +535,9 @@ export async function generateAmbientThought(
           { role: "system", content: `${MAWA_COMPANION_SYSTEM_PROMPT}\n\n${MAWA_AMBIENT_PROMPT}` },
           { role: "user", content: contextLine },
         ],
-        120,
-        0.65,
-        undefined,
+        220,
+        0.7,
+        responseFormat,
         model,
       );
       return parseAmbient(raw);

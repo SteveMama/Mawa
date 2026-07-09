@@ -11,6 +11,25 @@ export type MawaMood =
 export type MawaPalette = "cool" | "warm" | "violet" | "teal" | "dusk";
 
 export type MawaGazeMode = "steady" | "curious" | "dart" | "locked" | "dreamy";
+export type CompanionStance =
+  | "watchful"
+  | "dry"
+  | "warm"
+  | "playful"
+  | "protective"
+  | "amused"
+  | "tender"
+  | "braced";
+export type CompanionIntent =
+  | "observe"
+  | "welcome"
+  | "guard"
+  | "tease"
+  | "comfort"
+  | "admire_music"
+  | "study"
+  | "rest";
+export type CompanionSpeechStyle = "dry" | "warm" | "measured" | "playful" | "protective" | "hushed";
 
 export type PanelSlot = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 
@@ -67,6 +86,7 @@ export interface SceneManifest {
     mood: MawaMood;
     weather?: WeatherScene;
     animation?: SceneAnimation;
+    companion?: CompanionDirective;
     panels: ScenePanel[];
   };
   connectors: ConnectorState[];
@@ -74,6 +94,21 @@ export interface SceneManifest {
     cameraFramesLeaveDevice: false;
     audioUploaded: false;
   };
+}
+
+export interface CompanionSpeechDirective {
+  shouldSpeak: boolean;
+  text?: string;
+  style: CompanionSpeechStyle;
+  key?: string;
+}
+
+export interface CompanionDirective {
+  stance: CompanionStance;
+  intent: CompanionIntent;
+  attention: string;
+  memoryHint?: string;
+  speech: CompanionSpeechDirective;
 }
 
 /**
@@ -85,6 +120,11 @@ export interface RoomContext {
   dayPart: "morning" | "afternoon" | "evening" | "late night";
   weather?: WeatherScene["condition"];
   events: { title: string; when: string; slot: "personal" | "work" }[];
+  memory?: {
+    arrivalPattern?: string;
+    musicPattern?: string;
+    familiarPresence?: string;
+  };
   perception?: {
     faceCount: number;
     recognized: "me" | "other" | "unknown" | "none";
@@ -109,6 +149,7 @@ export interface ManifestContext {
   device?: string;
   appVersion?: string;
   privateAccess: boolean;
+  deviceAuthorized?: boolean;
   now: Date;
   perception?: RoomContext["perception"];
   /** Populated by composeManifest for the companion pass only. */
@@ -121,6 +162,7 @@ export interface ConnectorOutput {
   weather?: WeatherScene;
   suggestedMood?: MawaMood;
   suggestedAnimation?: SceneAnimation;
+  suggestedCompanion?: CompanionDirective;
 }
 
 export interface ManifestConnector {

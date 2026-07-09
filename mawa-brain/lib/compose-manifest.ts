@@ -46,8 +46,8 @@ export async function composeManifest(context: ManifestContext): Promise<SceneMa
   const dataOutputs = await Promise.all(dataConnectors.map((connector) => connector.build(context)));
 
   const room = roomFrom(context, dataOutputs);
-  const companion = activeConnectors.find((connector) => connector.id === "companion");
-  const companionOutput = companion ? await companion.build({ ...context, room }) : null;
+  const companionConnector = activeConnectors.find((connector) => connector.id === "companion");
+  const companionOutput = companionConnector ? await companionConnector.build({ ...context, room }) : null;
 
   // Reassemble in registry order so mood/animation precedence is stable.
   const outputs = activeConnectors
@@ -69,6 +69,10 @@ export async function composeManifest(context: ManifestContext): Promise<SceneMa
     .map((output) => output.suggestedAnimation)
     .filter((value): value is NonNullable<typeof value> => !!value)
     .at(-1);
+  const companionDirective = outputs
+    .map((output) => output.suggestedCompanion)
+    .filter((value): value is NonNullable<typeof value> => !!value)
+    .at(-1);
 
   return {
     schemaVersion: MANIFEST_SCHEMA_VERSION,
@@ -81,6 +85,7 @@ export async function composeManifest(context: ManifestContext): Promise<SceneMa
       mood,
       weather,
       animation,
+      companion: companionDirective,
       panels: outputs.flatMap((output) => output.panels),
     },
     connectors: [...outputs.map((output) => output.state), ...plannedConnectors],

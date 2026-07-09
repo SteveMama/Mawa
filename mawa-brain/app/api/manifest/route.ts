@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { composeManifest } from "../../../lib/compose-manifest";
-import { hasPrivateConnectorAccess } from "../../../lib/auth";
+import { hasPrivateConnectorAccess, isDeviceAuthorized } from "../../../lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -46,12 +46,14 @@ function shortText(value: string | null, maxLength: number): string | undefined 
 
 export async function GET(request: NextRequest) {
   const privateAccess = hasPrivateConnectorAccess(request);
+  const deviceAuthorized = isDeviceAuthorized(request);
   const manifest = await composeManifest({
     latitude: coordinate(request.nextUrl.searchParams.get("lat"), 42.3601, -90, 90),
     longitude: coordinate(request.nextUrl.searchParams.get("lon"), -71.0589, -180, 180),
     device: request.nextUrl.searchParams.get("device") ?? undefined,
     appVersion: request.nextUrl.searchParams.get("version") ?? undefined,
     privateAccess,
+    deviceAuthorized,
     now: new Date(),
     perception: {
       faceCount: integer(request.nextUrl.searchParams.get("faces"), 0, 0, 8),
