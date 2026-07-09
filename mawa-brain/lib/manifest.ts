@@ -91,7 +91,7 @@ export interface SceneManifest {
   };
   connectors: ConnectorState[];
   privacy: {
-    cameraFramesLeaveDevice: false;
+    cameraFramesLeaveDevice: boolean;
     audioUploaded: false;
   };
 }
@@ -124,6 +124,8 @@ export interface RoomContext {
     arrivalPattern?: string;
     musicPattern?: string;
     familiarPresence?: string;
+    latestScene?: string;
+    activityPattern?: string;
   };
   perception?: {
     faceCount: number;

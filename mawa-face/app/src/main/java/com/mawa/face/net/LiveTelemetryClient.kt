@@ -56,6 +56,7 @@ class LiveTelemetryClient(
         val camera: String,
         val brain: String,
         val beat: String,
+        val scene: String,
         val face: String,
     )
 
@@ -156,6 +157,7 @@ class LiveTelemetryClient(
             put("camera", snapshot.status.camera)
             put("brain", snapshot.status.brain)
             put("beat", snapshot.status.beat)
+            put("scene", snapshot.status.scene)
             put("face", snapshot.status.face)
         })
     }

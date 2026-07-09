@@ -11,7 +11,7 @@ import type {
 
 interface GroqMessage {
   role: "system" | "user" | "assistant";
-  content: string;
+  content: string | Array<Record<string, unknown>>;
 }
 
 export interface AmbientThought {
@@ -22,6 +22,13 @@ export interface AmbientThought {
   accent: string;
   animation: SceneAnimation;
   companion: CompanionDirective;
+}
+
+export interface VisionMomentInsight {
+  title: string;
+  summary: string;
+  activity: string;
+  confidence: number;
 }
 
 interface GroqChatResponse {
@@ -51,6 +58,10 @@ export function groqAmbientModel(): string {
   return groqModel();
 }
 
+export function groqVisionModel(): string {
+  return process.env.GROQ_VISION_MODEL?.trim() || "meta-llama/llama-4-scout-17b-16e-instruct";
+}
+
 function groqApiKey(): string | null {
   return process.env.GROQ_API_KEY?.trim() || null;
 }
@@ -67,6 +78,7 @@ export function groqStatus() {
     missing,
     model: groqModel(),
     ambientModel: groqAmbientModel(),
+    visionModel: groqVisionModel(),
   };
 }
 
@@ -347,6 +359,8 @@ function describeRoom(room: RoomContext): string {
   if (room.memory?.arrivalPattern) parts.push(room.memory.arrivalPattern);
   if (room.memory?.musicPattern) parts.push(room.memory.musicPattern);
   if (room.memory?.familiarPresence) parts.push(room.memory.familiarPresence);
+  if (room.memory?.latestScene) parts.push(`The latest remembered room shift: ${room.memory.latestScene}`);
+  if (room.memory?.activityPattern) parts.push(room.memory.activityPattern);
 
   const perception = room.perception;
   if (perception) {
@@ -552,6 +566,70 @@ export async function generateAmbientThought(
 
   ambientCache = { key: cacheKey, expiresAt: Date.now() + AMBIENT_CACHE_MS, thought };
   return thought;
+}
+
+function parseVisionMoment(raw: string): VisionMomentInsight {
+  const objectMatch = raw.match(/\{[\s\S]*\}/);
+  if (!objectMatch) throw new Error("Groq vision response was malformed");
+  const parsed = JSON.parse(objectMatch[0]) as {
+    title?: string;
+    summary?: string;
+    activity?: string;
+    confidence?: number;
+  };
+  return {
+    title: String(parsed.title ?? "Room shift").trim().slice(0, 28) || "Room shift",
+    summary: String(parsed.summary ?? "The room changed, but the moment stays ambiguous.")
+      .trim()
+      .slice(0, 180) || "The room changed, but the moment stays ambiguous.",
+    activity: String(parsed.activity ?? "unclear").trim().slice(0, 32) || "unclear",
+    confidence: clamp(parsed.confidence, 0, 1, 0.4),
+  };
+}
+
+export async function interpretRoomMoment(input: {
+  capturedAt: string;
+  labels: string[];
+  changeScore: number;
+  luma: number;
+  faceCount: number;
+  recognized: "me" | "other" | "unknown" | "none";
+  personLabel?: string;
+  musicActive: boolean;
+  groove: number;
+  imageBase64: string;
+}): Promise<VisionMomentInsight | null> {
+  if (!groqApiKey()) return null;
+
+  const content: Array<Record<string, unknown>> = [
+    {
+      type: "text",
+      text:
+        "You are interpreting one low-resolution room snapshot from a wall companion. " +
+        "Be conservative. Do not identify people unless the provided metadata already does. " +
+        "Infer likely activity only at a high level, such as working, resting, moving through the room, or listening to music. " +
+        "Return JSON only with keys: title, summary, activity, confidence. " +
+        `Metadata: capturedAt=${input.capturedAt}; labels=${input.labels.join(", ") || "none"}; ` +
+        `changeScore=${input.changeScore.toFixed(2)}; luma=${input.luma.toFixed(1)}; faceCount=${input.faceCount}; ` +
+        `recognized=${input.recognized}; personLabel=${input.personLabel ?? "none"}; ` +
+        `musicActive=${input.musicActive}; groove=${input.groove.toFixed(2)}.`,
+    },
+    {
+      type: "image_url",
+      image_url: {
+        url: `data:image/jpeg;base64,${input.imageBase64}`,
+      },
+    },
+  ];
+
+  const raw = await groqChat(
+    [{ role: "user", content }],
+    220,
+    0.3,
+    undefined,
+    groqVisionModel(),
+  );
+  return parseVisionMoment(raw);
 }
 
 export async function generateCompanionReply(message: string): Promise<string> {

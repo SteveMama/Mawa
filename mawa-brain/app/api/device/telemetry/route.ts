@@ -138,6 +138,7 @@ function status(value: unknown): LiveStatus {
     camera: stringValue(raw.camera, 120, "camera: unknown"),
     brain: stringValue(raw.brain, 120, "brain: unknown"),
     beat: stringValue(raw.beat, 120, "beat: unknown"),
+    scene: stringValue(raw.scene, 120, "scene: unknown"),
     face: stringValue(raw.face, 220, "face: unknown"),
   };
 }

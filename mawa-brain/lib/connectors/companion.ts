@@ -6,6 +6,7 @@ import {
   shouldAllowSpeech,
   summarizeCompanionMemory,
 } from "../companion-memory";
+import { readRoomMomentStore, summarizeRoomMoments } from "../room-moments";
 import type {
   CompanionDirective,
   ConnectorOutput,
@@ -39,9 +40,13 @@ export const companionConnector: ManifestConnector = {
 
       if (room && context.deviceAuthorized) {
         memory = rememberRoomContext(memory, room, context.now);
+        const sceneMoments = summarizeRoomMoments(await readRoomMomentStore(deviceId, context.now));
         room = {
           ...room,
-          memory: summarizeCompanionMemory(memory),
+          memory: {
+            ...summarizeCompanionMemory(memory),
+            ...sceneMoments,
+          },
         };
       }
 
@@ -52,7 +57,13 @@ export const companionConnector: ManifestConnector = {
       const companion: CompanionDirective = {
         ...thought.companion,
         memoryHint: room?.memory
-          ? [room.memory.arrivalPattern, room.memory.musicPattern, room.memory.familiarPresence]
+          ? [
+              room.memory.arrivalPattern,
+              room.memory.musicPattern,
+              room.memory.familiarPresence,
+              room.memory.latestScene,
+              room.memory.activityPattern,
+            ]
               .filter(Boolean)
               .join(" ")
               .slice(0, 120) || undefined

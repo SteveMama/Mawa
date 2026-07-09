@@ -1,6 +1,6 @@
 # Mawa project memory
 
-Last updated: 2026-07-04
+Last updated: 2026-07-09
 
 This is the durable handoff for future build sessions. `TODO.md` is the
 checklist; this file records why the system looks the way it does and the order
@@ -10,8 +10,11 @@ in which to extend it.
 
 - `mawa-face` is a native Kotlin/Canvas Android wall appliance on a landscape
   OnePlus running Android 13/OxygenOS.
-- Vision is local: CameraX + bundled ML Kit detection at ~5 fps and optional
-  MobileFaceNet identity embeddings. Camera frames never leave the phone.
+- Vision is local-first: CameraX + bundled ML Kit detection at ~5 fps, ML Kit
+  image labeling for room moments, and optional MobileFaceNet identity
+  embeddings. Full frame video never leaves the phone, but throttled still
+  snapshots can now be uploaded on meaningful scene changes for cloud
+  interpretation.
 - The face works offline: tracking, animation, sleep, weather fallback,
   calibration, TTS, boot recovery, crash recovery, and OTA update checks.
 - `mawa-brain` is Next.js 16 on Vercel, deployed at
@@ -38,12 +41,18 @@ in which to extend it.
 - Groq personality is now implemented in the brain. If `GROQ_API_KEY` is set,
   the manifest can emit a private ambient thought panel and cloud-driven mood,
   and the dashboard exposes a protected chat tester using the same prompt.
+- The phone now publishes scene-change moments to
+  `/api/device/moment`. The brain stores recent labeled snapshots, asks Groq
+  Vision for a cautious room-activity interpretation, shows the latest result
+  on the dashboard, and feeds the latest scene/activity memory back into the
+  ambient companion prompt.
 - A shared `MAWA_DEVICE_TOKEN` is paired through Vercel and GitHub Actions.
   Private calendar panels require it and never appear in public previews.
 
 ## Non-negotiable boundaries
 
-- Never send or store camera frames outside the phone.
+- Never stream raw camera video or continuous frames off-device. Only send
+  hard-throttled still snapshots for explicit room-moment memory features.
 - Ambient microphone access is permitted only for local beat-energy analysis;
   discard samples immediately and never store or upload them. Future voice STT
   should prefer on-device recognition and send only final transcript text.
@@ -67,22 +76,25 @@ in which to extend it.
    current cosine score, ME/OTHER, and threshold. Collect genuine/impostor
    readings, then add an optional local score sample and make “new person”
    identity-aware.
-3. **Voice vertical slice:** listening/thinking/speaking eye states, Android
+3. **Room-moment refinement:** tune scene-change thresholds on the wall, add
+   snapshot cooldown/backoff controls, and decide which interpreted moments are
+   worth keeping long-term vs only surfacing live on the dashboard.
+4. **Voice vertical slice:** listening/thinking/speaking eye states, Android
    `SpeechRecognizer`, transcript POST endpoint, pluggable Groq provider, and
    reply through existing Android TTS. Wake word comes immediately after this
    push-to-talk/debug path proves the loop.
-4. **Calendar activation:** create Google OAuth web credentials, add the
+5. **Calendar activation:** create Google OAuth web credentials, add the
    production secrets (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
    `MAWA_SIGNING_SECRET`, `MAWA_STATE_ENCRYPTION_SECRET`), ensure the Vercel
    Blob store/project attachment is valid, then connect the
    Personal and Work accounts from the dashboard and verify panels on the
    phone.
-5. **Calendar behaviors:** morning brief on first sighting and meeting heads-up
+6. **Calendar behaviors:** morning brief on first sighting and meeting heads-up
    budget rules.
-6. **Voice loop:** Android STT -> Groq reply -> TTS, reusing the new companion
+7. **Voice loop:** Android STT -> Groq reply -> TTS, reusing the new companion
    prompt and keeping transcripts text-only.
-7. **Gmail, then Spotify:** keep each connector independently degradable.
-8. **Thermals/battery:** phone telemetry in the manifest request or a separate
+8. **Gmail, then Spotify:** keep each connector independently degradable.
+9. **Thermals/battery:** phone telemetry in the manifest request or a separate
    endpoint; adapt camera cadence before adding always-listening wake word.
 
 ## User-required wall actions

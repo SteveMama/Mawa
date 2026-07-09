@@ -90,7 +90,7 @@ export async function composeManifest(context: ManifestContext): Promise<SceneMa
     },
     connectors: [...outputs.map((output) => output.state), ...plannedConnectors],
     privacy: {
-      cameraFramesLeaveDevice: false,
+      cameraFramesLeaveDevice: true,
       audioUploaded: false,
     },
   };

@@ -21,6 +21,7 @@ import com.mawa.face.audio.MusicTasteProfile
 import com.mawa.face.audio.Speech
 import com.mawa.face.audio.BeatDetector
 import com.mawa.face.net.LiveTelemetryClient
+import com.mawa.face.net.RoomMomentClient
 import com.mawa.face.net.SceneManifestClient
 import com.mawa.face.render.EyeView
 import com.mawa.face.render.Gesture
@@ -33,6 +34,7 @@ import com.mawa.face.vision.FaceGallery
 import com.mawa.face.vision.FaceRecognizer
 import com.mawa.face.vision.FaceTracker
 import com.mawa.face.vision.GazeMapper
+import com.mawa.face.vision.SceneMoment
 import com.mawa.face.weather.WeatherClient
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -57,6 +59,10 @@ class MainActivity : ComponentActivity() {
         BuildConfig.BRAIN_BASE_URL,
         BuildConfig.DEVICE_TOKEN,
     )
+    private val roomMomentClient = RoomMomentClient(
+        BuildConfig.BRAIN_BASE_URL,
+        BuildConfig.DEVICE_TOKEN,
+    )
     private val handler = Handler(Looper.getMainLooper())
 
     // Face recognition (dormant until a model is bundled)
@@ -74,6 +80,7 @@ class MainActivity : ComponentActivity() {
     private var camStatus = "starting..."
     private var brainStatus = "brain: starting..."
     private var beatStatus = "beat: starting..."
+    private var sceneStatus = "scene: waiting..."
     private var sceneRequestRunning = false
     private var faceLine = ""
     private var prevFaceCount = 0
@@ -235,6 +242,7 @@ class MainActivity : ComponentActivity() {
         handler.removeCallbacksAndMessages(null)
         lightSensor?.stop()
         beatDetector?.stop()
+        tracker?.stop()
         speech.shutdown()
         super.onDestroy()
     }
@@ -396,7 +404,11 @@ class MainActivity : ComponentActivity() {
                 refreshOverlay()
             },
             onStatus = { status ->
-                camStatus = status
+                if (status.startsWith("scene:")) {
+                    sceneStatus = status
+                } else {
+                    camStatus = status
+                }
                 runOnUiThread { refreshOverlay() }
             },
             onLuma = { luma ->
@@ -416,6 +428,9 @@ class MainActivity : ComponentActivity() {
                 latestObservedPersonLabel = galleryMatch.identity.label
                 latestObservedPersonSimilarity = galleryMatch.similarity
             },
+            onSceneMoment = { moment ->
+                publishRoomMoment(moment)
+            },
         ).also {
             it.recognitionEnabled = recognizer?.enabled == true
             it.start()
@@ -434,7 +449,29 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refreshOverlay() {
-        eyeView.debugText = camStatus + "\n" + brainStatus + "\n" + beatStatus + "\n" + faceLine
+        eyeView.debugText =
+            camStatus + "\n" + brainStatus + "\n" + beatStatus + "\n" + sceneStatus + "\n" + faceLine
+    }
+
+    private fun publishRoomMoment(moment: SceneMoment) {
+        val presence = currentPresenceSnapshot()
+        val groove = eyeView.engine.musicLevel().coerceIn(0f, 1f)
+        sceneStatus =
+            "scene: ${moment.labels.joinToString(", ").ifBlank { "shift" }} " +
+                String.format(Locale.US, "(%.2f)", moment.changeScore)
+        refreshOverlay()
+        roomMomentClient.publish(
+            deviceId = DEVICE_ID,
+            bitmap = moment.bitmap,
+            labels = moment.labels,
+            changeScore = moment.changeScore,
+            luma = moment.luma,
+            faceCount = moment.faceCount,
+            recognized = presence.recognized,
+            personLabel = presence.personLabel,
+            musicActive = presence.musicActive,
+            groove = groove,
+        )
     }
 
     private fun currentPresenceSnapshot(): SceneManifestClient.PresenceSnapshot {
@@ -485,7 +522,7 @@ class MainActivity : ComponentActivity() {
 
         telemetryClient.publish(
             LiveTelemetryClient.TelemetrySnapshot(
-                deviceId = "oneplus-wall",
+                deviceId = DEVICE_ID,
                 appVersion = BuildConfig.VERSION_CODE.toString(),
                 manifestId = currentManifestId,
                 capturedAt = isoTimestamp(),
@@ -534,6 +571,7 @@ class MainActivity : ComponentActivity() {
                     camera = camStatus,
                     brain = brainStatus,
                     beat = beatStatus,
+                    scene = sceneStatus,
                     face = faceLine,
                 ),
             )
@@ -745,6 +783,7 @@ class MainActivity : ComponentActivity() {
     }
 
     companion object {
+        private const val DEVICE_ID = "oneplus-wall"
         private const val UPDATE_CHECK_MS = 15 * 60 * 1000L
         private const val SCENE_CHECK_MS = 5 * 60 * 1000L
         private const val TELEMETRY_PUSH_MS = 12_000L

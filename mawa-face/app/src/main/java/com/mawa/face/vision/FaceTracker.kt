@@ -17,6 +17,7 @@ import androidx.lifecycle.LifecycleOwner
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetectorOptions
+import com.mawa.face.util.toBitmap
 import java.util.concurrent.Executors
 
 /**
@@ -29,7 +30,7 @@ import java.util.concurrent.Executors
  *
  * Emits: normalized face center + proximity + face count + average eye-open
  * probability (for blink-back), plus per-frame luminance (for camera-cover
- * "do not disturb"). No frame ever leaves this class.
+ * "do not disturb"), plus occasional room-moment snapshots for the cloud brain.
  */
 class FaceTracker(
     private val context: Context,
@@ -39,6 +40,7 @@ class FaceTracker(
     private val onStatus: (String) -> Unit,
     private val onLuma: (Float) -> Unit,
     private val onFaceCrop: (Bitmap) -> Unit = {},
+    private val onSceneMoment: (SceneMoment) -> Unit = {},
 ) {
     /** Set true once a recognition model is loaded, to start producing crops. */
     var recognitionEnabled = false
@@ -53,9 +55,14 @@ class FaceTracker(
     private val analysisExecutor = Executors.newSingleThreadExecutor()
     private var analysis: ImageAnalysis? = null
     private var lastProcessedAt = 0L
+    private var lastSceneBitmapAt = 0L
     private var lastSeenAt = 0L
     private var lostReported = true
     private var framesProcessed = 0
+    private val sceneMoments = SceneMomentAnalyzer(
+        onMoment = onSceneMoment,
+        onStatus = onStatus,
+    )
 
     fun start() {
         onStatus("starting front camera...")
@@ -81,6 +88,15 @@ class FaceTracker(
                 onStatus("CAMERA ERROR: ${e.message}")
             }
         }, ContextCompat.getMainExecutor(context))
+    }
+
+    fun stop() {
+        try {
+            analysis?.clearAnalyzer()
+            sceneMoments.close()
+            analysisExecutor.shutdown()
+        } catch (_: Exception) {
+        }
     }
 
     @Suppress("DEPRECATION")
@@ -122,12 +138,19 @@ class FaceTracker(
             return
         }
 
-        onLuma(lumaOf(mediaImage))
+        val currentLuma = lumaOf(mediaImage)
+        onLuma(currentLuma)
 
         val rotation = proxy.imageInfo.rotationDegrees
         val input = InputImage.fromMediaImage(mediaImage, rotation)
         val frameW = if (rotation % 180 == 0) proxy.width else proxy.height
         val frameH = if (rotation % 180 == 0) proxy.height else proxy.width
+        val sceneBitmap = if (now - lastSceneBitmapAt >= SCENE_BITMAP_INTERVAL_MS) {
+            lastSceneBitmapAt = now
+            uprightBitmap(proxy, rotation)
+        } else {
+            null
+        }
 
         detector.process(input)
             .addOnSuccessListener { faces ->
@@ -158,10 +181,12 @@ class FaceTracker(
                     lostReported = true
                     onLost()
                 }
+                sceneBitmap?.let { sceneMoments.consider(it, currentLuma, faces.size, now) }
             }
             .addOnFailureListener { e ->
                 Log.w(TAG, "detection failed", e)
                 onStatus("DETECTOR ERROR: ${e.message}")
+                sceneBitmap?.recycle()
             }
             .addOnCompleteListener { proxy.close() }
     }
@@ -174,18 +199,38 @@ class FaceTracker(
     @SuppressLint("UnsafeOptInUsageError")
     private fun cropFace(proxy: ImageProxy, rotation: Int, box: android.graphics.Rect): Bitmap? {
         return try {
-            var bmp = proxy.toBitmap()
-            if (rotation != 0) {
-                val m = Matrix().apply { postRotate(rotation.toFloat()) }
-                bmp = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
-            }
+            var bmp = uprightBitmap(proxy, rotation) ?: return null
             val x = box.left.coerceIn(0, bmp.width - 1)
             val y = box.top.coerceIn(0, bmp.height - 1)
             val w = box.width().coerceIn(1, bmp.width - x)
             val h = box.height().coerceIn(1, bmp.height - y)
-            if (w < 20 || h < 20) null else Bitmap.createBitmap(bmp, x, y, w, h)
+            if (w < 20 || h < 20) {
+                bmp.recycle()
+                null
+            } else {
+                val crop = Bitmap.createBitmap(bmp, x, y, w, h)
+                bmp.recycle()
+                crop
+            }
         } catch (e: Exception) {
             Log.w(TAG, "face crop failed", e)
+            null
+        }
+    }
+
+    @SuppressLint("UnsafeOptInUsageError")
+    private fun uprightBitmap(proxy: ImageProxy, rotation: Int): Bitmap? {
+        return try {
+            var bmp = proxy.toBitmap()
+            if (rotation != 0) {
+                val m = Matrix().apply { postRotate(rotation.toFloat()) }
+                val rotated = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
+                if (rotated !== bmp) bmp.recycle()
+                bmp = rotated
+            }
+            bmp
+        } catch (e: Exception) {
+            Log.w(TAG, "upright bitmap failed", e)
             null
         }
     }
@@ -195,5 +240,6 @@ class FaceTracker(
         private const val FRAME_INTERVAL_MS = 180L   // ~5 fps
         private const val LOST_AFTER_MS = 2000L      // hold gaze 2 s before wandering
         private const val CROP_INTERVAL_MS = 1200L   // recognition cadence
+        private const val SCENE_BITMAP_INTERVAL_MS = 8_000L
     }
 }

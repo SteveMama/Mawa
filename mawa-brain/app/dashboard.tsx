@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { LiveDeviceState } from "../lib/live-state";
 import type { SceneManifest } from "../lib/manifest";
+import type { RoomMomentStore } from "../lib/room-moments";
 
 const DEFAULT_LOCATION = { latitude: 42.3601, longitude: -71.0589 };
 
@@ -11,6 +12,7 @@ interface CompanionStatusResponse {
   missing: string[];
   model: string;
   ambientModel: string;
+  visionModel: string;
   adminAuthorized: boolean;
 }
 
@@ -19,12 +21,19 @@ interface LiveStateResponse {
   adminAuthorized: boolean;
 }
 
+interface RoomMomentsResponse {
+  moments: RoomMomentStore | null;
+  adminAuthorized: boolean;
+}
+
 export function Dashboard() {
   const [manifest, setManifest] = useState<SceneManifest | null>(null);
   const [companionStatus, setCompanionStatus] = useState<CompanionStatusResponse | null>(null);
   const [liveState, setLiveState] = useState<LiveDeviceState | null>(null);
+  const [roomMoments, setRoomMoments] = useState<RoomMomentStore | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [liveError, setLiveError] = useState<string | null>(null);
+  const [momentError, setMomentError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [adminToken, setAdminToken] = useState("");
@@ -79,17 +88,35 @@ export function Dashboard() {
     }
   }, [authHeaders]);
 
+  const loadRoomMoments = useCallback(async () => {
+    try {
+      const response = await fetch("/api/device/moment?deviceId=oneplus-wall", {
+        cache: "no-store",
+        headers: authHeaders(),
+      });
+      const payload = (await response.json()) as { error?: string } & Partial<RoomMomentsResponse>;
+      if (!response.ok) throw new Error(payload.error || `Room moments returned ${response.status}`);
+      setRoomMoments(payload.moments ?? null);
+      setMomentError(null);
+    } catch (cause) {
+      setRoomMoments(null);
+      setMomentError(cause instanceof Error ? cause.message : "Could not load room moments");
+    }
+  }, [authHeaders]);
+
   useEffect(() => {
     load();
     loadCompanionStatus().catch((cause) => {
       setError(cause instanceof Error ? cause.message : "Could not load companion status");
     });
     loadLiveState().catch(() => {});
+    loadRoomMoments().catch(() => {});
     const interval = window.setInterval(() => {
       loadLiveState().catch(() => {});
+      loadRoomMoments().catch(() => {});
     }, 5_000);
     return () => window.clearInterval(interval);
-  }, [load, loadCompanionStatus, loadLiveState]);
+  }, [load, loadCompanionStatus, loadLiveState, loadRoomMoments]);
 
   function useMyLocation() {
     if (!navigator.geolocation) return;
@@ -128,6 +155,7 @@ export function Dashboard() {
     liveAgeMs < 5_000 ? "just now" :
     liveAgeMs < 60_000 ? `${Math.round(liveAgeMs / 1000)}s ago` :
     `${Math.round(liveAgeMs / 60_000)}m ago`;
+  const latestMoment = roomMoments?.recent?.[0];
 
   return (
     <main>
@@ -223,9 +251,49 @@ export function Dashboard() {
               <div className="live-debug-line"><small>Camera</small><span>{liveState.status.camera}</span></div>
               <div className="live-debug-line"><small>Brain</small><span>{liveState.status.brain}</span></div>
               <div className="live-debug-line"><small>Beat</small><span>{liveState.status.beat}</span></div>
+              <div className="live-debug-line"><small>Scene</small><span>{liveState.status.scene}</span></div>
               <div className="live-debug-line"><small>Face</small><span>{liveState.status.face}</span></div>
             </div>
           ) : null}
+        </article>
+
+        <article className="card moment-card">
+          <div className="live-head">
+            <div>
+              <p className="eyebrow">LATEST ROOM MOMENT</p>
+              <h2>{latestMoment?.insight.title ?? "Waiting"}</h2>
+              <p>{latestMoment?.insight.summary ?? momentError ?? "Waiting for a scene change worth remembering."}</p>
+            </div>
+            <div className="live-meta">
+              <span className={`dot ${latestMoment ? "" : "planned"}`} />
+              <strong>{latestMoment ? latestMoment.insight.activity : "Idle"}</strong>
+              <small>
+                {latestMoment ? `${Math.round(latestMoment.insight.confidence * 100)}% confidence` : "No moment yet"}
+              </small>
+            </div>
+          </div>
+
+          {latestMoment?.imageDataUrl ? (
+            <img className="moment-preview" src={latestMoment.imageDataUrl} alt={latestMoment.insight.title} />
+          ) : null}
+
+          <div className="live-stats">
+            <div>
+              <small>Labels</small>
+              <strong>{latestMoment?.labels.join(", ") || "—"}</strong>
+              <span>{latestMoment ? `change ${Math.round(latestMoment.changeScore * 100)}%` : "—"}</span>
+            </div>
+            <div>
+              <small>Presence</small>
+              <strong>{latestMoment ? `${latestMoment.faceCount} face${latestMoment.faceCount === 1 ? "" : "s"}` : "—"}</strong>
+              <span>{latestMoment?.personLabel ?? latestMoment?.recognized ?? "—"}</span>
+            </div>
+            <div>
+              <small>Audio context</small>
+              <strong>{latestMoment?.musicActive ? "music nearby" : "quiet"}</strong>
+              <span>{latestMoment ? `${Math.round(latestMoment.groove * 100)}% groove` : "—"}</span>
+            </div>
+          </div>
         </article>
       </section>
 
@@ -290,8 +358,8 @@ export function Dashboard() {
                 <small>
                   {companionStatus?.ready
                     ? companionStatus.ambientModel === companionStatus.model
-                      ? `Model: ${companionStatus.model}`
-                      : `Chat: ${companionStatus.model} · Ambient: ${companionStatus.ambientModel}`
+                      ? `Chat: ${companionStatus.model} · Vision: ${companionStatus.visionModel}`
+                      : `Chat: ${companionStatus.model} · Ambient: ${companionStatus.ambientModel} · Vision: ${companionStatus.visionModel}`
                     : `Missing: ${companionStatus?.missing.join(", ") || "Groq configuration"}`}
                 </small>
               </div>
@@ -304,6 +372,7 @@ export function Dashboard() {
                 onBlur={() => {
                   loadCompanionStatus().catch(() => {});
                   loadLiveState().catch(() => {});
+                  loadRoomMoments().catch(() => {});
                 }}
                 placeholder="Dashboard admin token (optional)"
               />
@@ -329,6 +398,11 @@ export function Dashboard() {
                 Enter the admin token above to unlock the live wall feed in this browser.
               </p>
             ) : null}
+            {momentError === "provide the dashboard admin token" ? (
+              <p className="auth-warning">
+                Enter the admin token above to unlock scene memories in this browser.
+              </p>
+            ) : null}
             {companionReply ? <p className="companion-reply">{companionReply}</p> : null}
           </div>
         </article>
@@ -337,7 +411,7 @@ export function Dashboard() {
       <footer>
         <span>Schema v{manifest?.schemaVersion ?? 1}</span>
         <span>Poll every {manifest?.pollAfterSeconds ?? 300}s</span>
-        <span>Camera frames never leave the phone</span>
+        <span>Scene snapshots can leave the phone for cloud interpretation</span>
       </footer>
     </main>
   );

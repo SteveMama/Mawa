@@ -47,6 +47,7 @@ export interface LiveStatus {
   camera: string;
   brain: string;
   beat: string;
+  scene: string;
   face: string;
 }
 

@@ -87,6 +87,7 @@ dependencies {
 
     // Bundled ML Kit face detection — model ships in the APK, fully on-device
     implementation("com.google.mlkit:face-detection:16.1.7")
+    implementation("com.google.mlkit:image-labeling:17.0.9")
 
     // On-device face recognition (embeddings). Dormant until a model is added
     // at app/src/main/assets/mobilefacenet.tflite.
