@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isAdminAuthorized, isDeviceAuthorized } from "../../../../lib/auth";
+import { isDeviceAuthorized } from "../../../../lib/auth";
 import {
   LIVE_DEVICE_STATE_SCHEMA_VERSION,
   type LiveDeviceState,
@@ -160,19 +160,13 @@ function normalizeState(payload: unknown): LiveDeviceState {
 }
 
 export async function GET(request: NextRequest) {
-  if (!isAdminAuthorized(request)) {
-    return NextResponse.json({ error: "provide the dashboard admin token" }, { status: 401 });
-  }
-
   return NextResponse.json(
     {
       live: await readLiveDeviceState(),
-      adminAuthorized: true,
     },
     {
       headers: {
-        "Cache-Control": "private, no-store",
-        Vary: "Authorization, Cookie",
+        "Cache-Control": "public, no-store",
       },
     },
   );

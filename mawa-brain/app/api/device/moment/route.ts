@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { isAdminAuthorized, isDeviceAuthorized } from "../../../../lib/auth";
+import { isDeviceAuthorized } from "../../../../lib/auth";
 import { interpretRoomMoment, type VisionMomentInsight } from "../../../../lib/companion/groq";
 import {
   readRoomMomentStore,
@@ -157,20 +157,14 @@ async function normalizeMoment(payload: unknown): Promise<RoomMomentRecord> {
 }
 
 export async function GET(request: NextRequest) {
-  if (!isAdminAuthorized(request)) {
-    return NextResponse.json({ error: "provide the dashboard admin token" }, { status: 401 });
-  }
-
   const deviceId = stringValue(request.nextUrl.searchParams.get("deviceId"), 48, "oneplus-wall");
   return NextResponse.json(
     {
       moments: await readRoomMomentStore(deviceId, new Date()),
-      adminAuthorized: true,
     },
     {
       headers: {
-        "Cache-Control": "private, no-store",
-        Vary: "Authorization, Cookie",
+        "Cache-Control": "public, no-store",
       },
     },
   );

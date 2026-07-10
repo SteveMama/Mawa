@@ -17,18 +17,12 @@ export function isDeviceAuthorized(request: Request): boolean {
   return safeEqual(process.env.MAWA_DEVICE_TOKEN?.trim(), bearer(request));
 }
 
-/**
- * Dashboard admin actions (companion tester). If MAWA_DASHBOARD_ADMIN_TOKEN is
- * configured, require it (or the device token). If unset, keep the tester open
- * so the public dashboard can exercise the companion without extra setup.
- */
-export function isAdminAuthorized(request: Request): boolean {
-  const admin = process.env.MAWA_DASHBOARD_ADMIN_TOKEN?.trim();
-  if (!admin) return true;
-  return safeEqual(admin, bearer(request)) || isDeviceAuthorized(request);
+/** Dashboard reads are public; only device writes stay authenticated. */
+export function isAdminAuthorized(_request: Request): boolean {
+  return true;
 }
 
-/** Private connector data (calendar event details) reaches device or admin only. */
+/** Private connector data reaches only the paired device. */
 export function hasPrivateConnectorAccess(request: Request): boolean {
-  return isDeviceAuthorized(request) || isAdminAuthorized(request);
+  return isDeviceAuthorized(request);
 }

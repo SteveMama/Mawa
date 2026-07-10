@@ -1,14 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isAdminAuthorized } from "../../../../lib/auth";
 import { generateCompanionReply } from "../../../../lib/companion/groq";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
-  if (!isAdminAuthorized(request)) {
-    return NextResponse.json({ error: "provide the dashboard admin token" }, { status: 401 });
-  }
-
   const payload = (await request.json().catch(() => ({}))) as { message?: string };
   const message = payload.message?.trim() ?? "";
   if (!message) {

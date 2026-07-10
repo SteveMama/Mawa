@@ -13,17 +13,14 @@ interface CompanionStatusResponse {
   model: string;
   ambientModel: string;
   visionModel: string;
-  adminAuthorized: boolean;
 }
 
 interface LiveStateResponse {
   live: LiveDeviceState | null;
-  adminAuthorized: boolean;
 }
 
 interface RoomMomentsResponse {
   moments: RoomMomentStore | null;
-  adminAuthorized: boolean;
 }
 
 export function Dashboard() {
@@ -36,15 +33,10 @@ export function Dashboard() {
   const [momentError, setMomentError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [adminToken, setAdminToken] = useState("");
   const [companionInput, setCompanionInput] = useState("How are you feeling on the wall tonight?");
   const [companionReply, setCompanionReply] = useState<string | null>(null);
 
   const dashboardBuild = useMemo(() => Date.now().toString(36), []);
-
-  const authHeaders = useCallback((): HeadersInit => {
-    return adminToken.trim() ? { Authorization: `Bearer ${adminToken.trim()}` } : {};
-  }, [adminToken]);
 
   const load = useCallback(async (location = DEFAULT_LOCATION) => {
     setLoading(true);
@@ -64,22 +56,20 @@ export function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [dashboardBuild]);
 
   const loadCompanionStatus = useCallback(async () => {
-      const response = await fetch(`/api/companion/status?v=${dashboardBuild}`, {
-        cache: "no-store",
-        headers: authHeaders(),
-      });
+    const response = await fetch(`/api/companion/status?v=${dashboardBuild}`, {
+      cache: "no-store",
+    });
     if (!response.ok) throw new Error(`Companion status returned ${response.status}`);
     setCompanionStatus((await response.json()) as CompanionStatusResponse);
-  }, [authHeaders]);
+  }, [dashboardBuild]);
 
   const loadLiveState = useCallback(async () => {
     try {
       const response = await fetch(`/api/device/telemetry?v=${dashboardBuild}`, {
         cache: "no-store",
-        headers: authHeaders(),
       });
       const payload = (await response.json()) as { error?: string } & Partial<LiveStateResponse>;
       if (!response.ok) throw new Error(payload.error || `Live state returned ${response.status}`);
@@ -89,13 +79,12 @@ export function Dashboard() {
       setLiveState(null);
       setLiveError(cause instanceof Error ? cause.message : "Could not load live device state");
     }
-  }, [authHeaders]);
+  }, [dashboardBuild]);
 
   const loadRoomMoments = useCallback(async () => {
     try {
       const response = await fetch(`/api/device/moment?deviceId=oneplus-wall&v=${dashboardBuild}`, {
         cache: "no-store",
-        headers: authHeaders(),
       });
       const payload = (await response.json()) as { error?: string } & Partial<RoomMomentsResponse>;
       if (!response.ok) throw new Error(payload.error || `Room moments returned ${response.status}`);
@@ -105,20 +94,7 @@ export function Dashboard() {
       setRoomMoments(null);
       setMomentError(cause instanceof Error ? cause.message : "Could not load room moments");
     }
-  }, [authHeaders, dashboardBuild]);
-
-  useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem("mawa_dashboard_admin_token");
-      if (stored) setAdminToken(stored);
-      const params = new URLSearchParams(window.location.search);
-      const tokenFromUrl = params.get("adminToken")?.trim();
-      if (tokenFromUrl) {
-        setAdminToken(tokenFromUrl);
-        window.localStorage.setItem("mawa_dashboard_admin_token", tokenFromUrl);
-      }
-    } catch {}
-  }, []);
+  }, [dashboardBuild]);
 
   useEffect(() => {
     load();
@@ -134,16 +110,6 @@ export function Dashboard() {
     return () => window.clearInterval(interval);
   }, [load, loadCompanionStatus, loadLiveState, loadRoomMoments]);
 
-  useEffect(() => {
-    try {
-      if (adminToken.trim()) {
-        window.localStorage.setItem("mawa_dashboard_admin_token", adminToken.trim());
-      } else {
-        window.localStorage.removeItem("mawa_dashboard_admin_token");
-      }
-    } catch {}
-  }, [adminToken]);
-
   function useMyLocation() {
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
@@ -158,7 +124,7 @@ export function Dashboard() {
     try {
       const response = await fetch("/api/companion/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: companionInput }),
       });
       const payload = (await response.json()) as { reply?: string; error?: string };
@@ -375,8 +341,7 @@ export function Dashboard() {
           <div className="companion-card">
             <p className="eyebrow">GROQ COMPANION</p>
             <p className="auth-copy">
-              Same prompt as the wall-facing ambient thought engine. If you set a dashboard admin
-              token, paste it here. If you do not, the tester is open by default.
+              Same prompt as the wall-facing ambient thought engine.
             </p>
             <div className="auth-slot">
               <div>
@@ -391,17 +356,6 @@ export function Dashboard() {
               </div>
             </div>
             <div className="companion-compose">
-              <input
-                type="password"
-                value={adminToken}
-                onChange={(event) => setAdminToken(event.target.value)}
-                onBlur={() => {
-                  loadCompanionStatus().catch(() => {});
-                  loadLiveState().catch(() => {});
-                  loadRoomMoments().catch(() => {});
-                }}
-                placeholder="Dashboard admin token (optional)"
-              />
               <textarea
                 value={companionInput}
                 onChange={(event) => setCompanionInput(event.target.value)}
@@ -414,21 +368,6 @@ export function Dashboard() {
                 {busy ? "Listening…" : "Ask Mawa"}
               </button>
             </div>
-            {companionStatus && !companionStatus.adminAuthorized ? (
-              <p className="auth-warning">
-                Enter the admin token above to unlock the companion tester in this browser.
-              </p>
-            ) : null}
-            {liveError === "provide the dashboard admin token" ? (
-              <p className="auth-warning">
-                Enter the admin token above to unlock the live wall feed in this browser.
-              </p>
-            ) : null}
-            {momentError === "provide the dashboard admin token" ? (
-              <p className="auth-warning">
-                Enter the admin token above to unlock scene memories in this browser.
-              </p>
-            ) : null}
             {companionReply ? <p className="companion-reply">{companionReply}</p> : null}
           </div>
         </article>
