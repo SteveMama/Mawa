@@ -4,21 +4,47 @@ import {
   type ConnectorOutput,
   type ManifestContext,
   type RoomContext,
+  type SceneBrief,
   type SceneManifest,
 } from "./manifest";
+
+function timeZoneName(): string {
+  return process.env.MAWA_TIME_ZONE || "America/New_York";
+}
 
 function dayPart(now: Date): RoomContext["dayPart"] {
   const hour = Number(
     new Intl.DateTimeFormat("en-US", {
       hour: "numeric",
       hour12: false,
-      timeZone: process.env.MAWA_TIME_ZONE || "America/New_York",
+      timeZone: timeZoneName(),
     }).format(now),
   );
   if (hour >= 22 || hour <= 5) return "late night";
   if (hour <= 11) return "morning";
   if (hour <= 16) return "afternoon";
   return "evening";
+}
+
+/** A once-a-morning summary of the day, built from the calendars' agendas. */
+function buildBrief(now: Date, outputs: ConnectorOutput[]): SceneBrief | undefined {
+  if (dayPart(now) !== "morning") return undefined;
+  const items = outputs
+    .flatMap((output) => output.agenda ?? [])
+    .sort((a, b) => a.startMs - b.startMs);
+  if (items.length === 0) return undefined;
+  const dayKey = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timeZoneName(),
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+  return {
+    id: `brief-${dayKey}`,
+    headline: items.length === 1 ? "1 thing today" : `${items.length} things today`,
+    lines: items.slice(0, 3).map((item) => `${item.label} · ${item.title}`),
+    accent: "#B6D9F2",
+  };
 }
 
 function roomFrom(context: ManifestContext, dataOutputs: ConnectorOutput[]): RoomContext {
@@ -78,6 +104,7 @@ export async function composeManifest(context: ManifestContext): Promise<SceneMa
     .filter((value): value is NonNullable<typeof value> => !!value)
     .sort((a, b) => a.minutesUntil - b.minutesUntil)
     .at(0);
+  const brief = buildBrief(context.now, outputs);
 
   return {
     schemaVersion: MANIFEST_SCHEMA_VERSION,
@@ -93,6 +120,7 @@ export async function composeManifest(context: ManifestContext): Promise<SceneMa
       animation,
       companion: companionDirective,
       reminder,
+      brief,
       panels: outputs.flatMap((output) => output.panels),
     },
     connectors: [...outputs.map((output) => output.state), ...plannedConnectors],

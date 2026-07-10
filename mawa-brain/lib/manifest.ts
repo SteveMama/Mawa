@@ -67,6 +67,27 @@ export interface SceneReminder {
   accent: string;
 }
 
+/**
+ * A once-a-morning summary of the day's calendar, shown when you first walk up.
+ * Private-path only (carries event titles). `id` is date-keyed so the wall
+ * shows it once per day.
+ */
+export interface SceneBrief {
+  id: string;
+  headline: string;
+  lines: string[];
+  accent: string;
+}
+
+/** One calendar event, contributed by a connector for the morning brief. */
+export interface AgendaItem {
+  title: string;
+  label: string;
+  startMs: number;
+  allDay: boolean;
+  slot: "personal" | "work";
+}
+
 export interface WeatherScene {
   condition: "clear" | "clouds" | "rain" | "snow" | "fog" | "thunder";
   temperatureC: number;
@@ -102,6 +123,7 @@ export interface SceneManifest {
     animation?: SceneAnimation;
     companion?: CompanionDirective;
     reminder?: SceneReminder;
+    brief?: SceneBrief;
     panels: ScenePanel[];
   };
   connectors: ConnectorState[];
@@ -177,6 +199,7 @@ export interface ConnectorOutput {
   state: ConnectorState;
   panels: ScenePanel[];
   reminder?: SceneReminder;
+  agenda?: AgendaItem[];
   weather?: WeatherScene;
   suggestedMood?: MawaMood;
   suggestedAnimation?: SceneAnimation;

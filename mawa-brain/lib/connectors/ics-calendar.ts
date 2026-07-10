@@ -1,4 +1,5 @@
 import type {
+  AgendaItem,
   ConnectorOutput,
   ManifestConnector,
   ManifestContext,
@@ -214,6 +215,41 @@ function when(event: CalendarEvent): string {
   }).format(event.start);
 }
 
+/** Local calendar date (YYYY-MM-DD) in the display zone, for same-day checks. */
+function localDay(date: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: timeZone(),
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+/** A short, time-only label for the morning brief ("9:30 AM" / "All day"). */
+function briefLabel(event: CalendarEvent): string {
+  if (event.allDay) return "All day";
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: timeZone(),
+  }).format(event.start);
+}
+
+/** Today's remaining events (from the already-fetched, filtered, sorted list). */
+function agendaFrom(feed: SlotDefinition, events: CalendarEvent[], now: Date): AgendaItem[] {
+  const today = localDay(now);
+  return events
+    .filter((event) => localDay(event.start) === today)
+    .slice(0, 6)
+    .map((event) => ({
+      title: event.title,
+      label: briefLabel(event),
+      startMs: event.start.getTime(),
+      allDay: event.allDay,
+      slot: feed.slot,
+    }));
+}
+
 /** The soonest timed event, if it starts within the lead window, as a reminder. */
 function reminderFrom(
   feed: SlotDefinition,
@@ -281,6 +317,7 @@ export function icsCalendarConnector(slot: Slot): ManifestConnector {
             lastUpdatedAt: context.now.toISOString(),
           },
           reminder: reminderFrom(feed, events, context.now),
+          agenda: agendaFrom(feed, events, context.now),
           panels: [
             {
               id: `${feed.connectorId}-next`,

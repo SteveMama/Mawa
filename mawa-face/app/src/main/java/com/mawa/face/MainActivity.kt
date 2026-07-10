@@ -106,6 +106,7 @@ class MainActivity : ComponentActivity() {
     private var currentThoughtAccent: String? = null
     private var lastCompanionLineKey: String? = null
     private var lastCompanionSpeechAtMs = 0L
+    private var lastBriefId: String? = null
 
     // Blink-back edge detection
     private var prevEyeOpen = 1f
@@ -298,6 +299,14 @@ class MainActivity : ComponentActivity() {
                             r.accent,
                         )
                     } ?: eyeView.clearReminder()
+                    // Morning brief: only "spend" it once you're actually at the
+                    // wall, so a pre-dawn poll can't consume it before you're up.
+                    snapshot.brief?.let { b ->
+                        if (b.id != lastBriefId && latestFaceCount > 0 && !eyeView.engine.isSleeping()) {
+                            lastBriefId = b.id
+                            eyeView.showBrief(b.id, b.headline, b.lines, b.accent)
+                        }
+                    }
                     scenePollMs = (snapshot.pollAfterSeconds * 1000L).coerceIn(60_000L, 10 * 60_000L)
                     brainStatus = "brain: online  ${snapshot.manifestId}"
                 }.onFailure { error ->

@@ -71,6 +71,14 @@ class EyeView @JvmOverloads constructor(
         typeface = Typeface.DEFAULT_BOLD
     }
 
+    // --- morning brief card (once-a-morning day summary) -------------------
+    private var briefId: String? = null
+    private var briefHeadline = ""
+    private var briefLines: List<String> = emptyList()
+    private var briefAccent = Color.parseColor("#B6D9F2")
+    private var briefIntroAt = 0L
+    private val scrimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+
     private val bodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val haloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val pupilPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
@@ -151,8 +159,28 @@ class EyeView @JvmOverloads constructor(
         reminderId = null
     }
 
+    /** Show the once-a-morning day summary. A new [id] pops with a blink; it
+     * displays for a fixed window and fades itself out. */
+    fun showBrief(id: String, headline: String, lines: List<String>, accent: String) {
+        if (id == briefId) return
+        briefId = id
+        briefHeadline = headline
+        briefLines = lines.take(3)
+        briefAccent = try {
+            Color.parseColor(accent)
+        } catch (_: IllegalArgumentException) {
+            Color.parseColor("#B6D9F2")
+        }
+        briefIntroAt = SystemClock.elapsedRealtime()
+        engine.play(Gesture.BLINK)
+    }
+
+    private fun briefVisible(): Boolean =
+        briefId != null && SystemClock.elapsedRealtime() - briefIntroAt <= BRIEF_VISIBLE_MS
+
     private companion object {
         const val REMINDER_MAX_AGE_MS = 180_000L
+        const val BRIEF_VISIBLE_MS = 13_000L
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -179,7 +207,8 @@ class EyeView @JvmOverloads constructor(
         drawFocusFrame(canvas, cx, cy, eyeGap)
 
         updateAndDrawWeather(canvas, dt)
-        drawReminder(canvas)
+        // The morning brief takes the lower stage; a reminder yields to it.
+        if (briefVisible()) drawBrief(canvas) else drawReminder(canvas)
 
         if (engine.sleeping) {
             zClock += dt
@@ -372,6 +401,60 @@ class EyeView @JvmOverloads constructor(
         canvas.drawText(reminderTitle, cx, baseY + height * 0.028f, reminderPaint)
 
         canvas.restore()
+    }
+
+    /**
+     * The morning brief: a headline plus the day's first few events, over a
+     * soft dark scrim so text stays legible near the eyes. Fades in, holds,
+     * fades out, then retires for the rest of the day.
+     */
+    private fun drawBrief(canvas: Canvas) {
+        if (briefId == null || engine.sleeping || engine.covered) return
+        val age = SystemClock.elapsedRealtime() - briefIntroAt
+        if (age > BRIEF_VISIBLE_MS) {
+            briefId = null
+            return
+        }
+        val inF = (age / 320f).coerceIn(0f, 1f)
+        val outF = ((BRIEF_VISIBLE_MS - age) / 620f).coerceIn(0f, 1f)
+        val raw = min(inF, outF)
+        val alpha = raw * raw * (3f - 2f * raw)
+        val cx = width / 2f
+        val top = height * 0.58f + (1f - alpha) * height * 0.03f
+
+        val lineStep = height * 0.072f
+        val blockH = height * 0.12f + briefLines.size * lineStep
+        scrimPaint.shader = RadialGradient(
+            cx, top + blockH * 0.38f, width * 0.5f,
+            intArrayOf(withAlpha(Color.BLACK, (170 * alpha).toInt()), withAlpha(Color.BLACK, 0)),
+            floatArrayOf(0f, 1f),
+            Shader.TileMode.CLAMP,
+        )
+        canvas.drawCircle(cx, top + blockH * 0.38f, width * 0.5f, scrimPaint)
+        scrimPaint.shader = null
+
+        reminderPaint.color = briefAccent
+        reminderPaint.alpha = (235 * alpha).toInt().coerceIn(0, 255)
+        reminderPaint.textSize = height * 0.052f
+        canvas.drawText(briefHeadline, cx, top, reminderPaint)
+
+        reminderPaint.color = lighten(briefAccent, 0.35f)
+        reminderPaint.textSize = height * 0.042f
+        var y = top + height * 0.075f
+        for (line in briefLines) {
+            reminderPaint.alpha = (215 * alpha).toInt().coerceIn(0, 255)
+            var text = line
+            var tw = reminderPaint.measureText(text)
+            val maxW = width * 0.86f
+            if (tw > maxW) {
+                while (text.length > 4 && reminderPaint.measureText("$text…") > maxW) {
+                    text = text.substring(0, text.length - 1)
+                }
+                text = "$text…"
+            }
+            canvas.drawText(text, cx, y, reminderPaint)
+            y += lineStep
+        }
     }
 
     private fun drawFocusFrame(canvas: Canvas, cx: Float, cy: Float, eyeGap: Float) {

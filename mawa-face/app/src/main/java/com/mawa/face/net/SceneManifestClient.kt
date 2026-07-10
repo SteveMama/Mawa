@@ -25,6 +25,13 @@ data class SceneReminder(
     val accent: String,
 )
 
+data class SceneBrief(
+    val id: String,
+    val headline: String,
+    val lines: List<String>,
+    val accent: String,
+)
+
 data class SceneSnapshot(
     val manifestId: String,
     val mood: Mood?,
@@ -37,6 +44,7 @@ data class SceneSnapshot(
     val companionIntent: CloudCompanionIntent,
     val companionAttention: String,
     val reminder: SceneReminder?,
+    val brief: SceneBrief?,
     val panels: List<ScenePanel>,
     val pollAfterSeconds: Int,
 )
@@ -165,6 +173,20 @@ class SceneManifestClient(
                 accent = r.optString("accent", "#A5D6A7").take(16),
             )
         }
+        val brief = scene.optJSONObject("brief")?.let { b ->
+            val id = b.optString("id").take(80)
+            val headline = b.optString("headline").take(32)
+            val rawLines = b.optJSONArray("lines")
+            val lines = buildList {
+                if (rawLines != null) {
+                    for (i in 0 until minOf(rawLines.length(), 4)) {
+                        rawLines.optString(i).takeIf { it.isNotBlank() }?.take(48)?.let { add(it) }
+                    }
+                }
+            }
+            if (id.isBlank() || lines.isEmpty()) null
+            else SceneBrief(id = id, headline = headline, lines = lines, accent = b.optString("accent", "#B6D9F2").take(16))
+        }
         val rawPanels = scene.optJSONArray("panels")
         val panels = buildList {
             if (rawPanels != null) {
@@ -195,6 +217,7 @@ class SceneManifestClient(
             companionIntent = intentOf(companion?.optString("intent", "observe") ?: "observe"),
             companionAttention = companion?.optString("attention", "wandering")?.take(28) ?: "wandering",
             reminder = reminder,
+            brief = brief,
             panels = panels,
             pollAfterSeconds = root.optInt("pollAfterSeconds", 300).coerceIn(60, 1800),
         )
