@@ -16,6 +16,15 @@ import java.net.URL
 import java.net.URLEncoder
 import java.util.Locale
 
+data class SceneReminder(
+    val id: String,
+    val title: String,
+    val whenText: String,
+    val minutesUntil: Int,
+    val slot: String,
+    val accent: String,
+)
+
 data class SceneSnapshot(
     val manifestId: String,
     val mood: Mood?,
@@ -27,6 +36,7 @@ data class SceneSnapshot(
     val companionStance: CloudCompanionStance,
     val companionIntent: CloudCompanionIntent,
     val companionAttention: String,
+    val reminder: SceneReminder?,
     val panels: List<ScenePanel>,
     val pollAfterSeconds: Int,
 )
@@ -142,6 +152,19 @@ class SceneManifestClient(
         val speech = scene.optJSONObject("companion")
             ?.optJSONObject("speech")
         val companion = scene.optJSONObject("companion")
+        val reminder = scene.optJSONObject("reminder")?.let { r ->
+            val id = r.optString("id").take(80)
+            val title = r.optString("title").take(48)
+            if (id.isBlank() || title.isBlank()) null
+            else SceneReminder(
+                id = id,
+                title = title,
+                whenText = r.optString("when").take(24),
+                minutesUntil = r.optInt("minutesUntil", 0),
+                slot = r.optString("slot", "personal").take(16),
+                accent = r.optString("accent", "#A5D6A7").take(16),
+            )
+        }
         val rawPanels = scene.optJSONArray("panels")
         val panels = buildList {
             if (rawPanels != null) {
@@ -171,6 +194,7 @@ class SceneManifestClient(
             companionStance = stanceOf(companion?.optString("stance", "watchful") ?: "watchful"),
             companionIntent = intentOf(companion?.optString("intent", "observe") ?: "observe"),
             companionAttention = companion?.optString("attention", "wandering")?.take(28) ?: "wandering",
+            reminder = reminder,
             panels = panels,
             pollAfterSeconds = root.optInt("pollAfterSeconds", 300).coerceIn(60, 1800),
         )

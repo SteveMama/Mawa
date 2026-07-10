@@ -73,19 +73,26 @@ export async function composeManifest(context: ManifestContext): Promise<SceneMa
     .map((output) => output.suggestedCompanion)
     .filter((value): value is NonNullable<typeof value> => !!value)
     .at(-1);
+  const reminder = outputs
+    .map((output) => output.reminder)
+    .filter((value): value is NonNullable<typeof value> => !!value)
+    .sort((a, b) => a.minutesUntil - b.minutesUntil)
+    .at(0);
 
   return {
     schemaVersion: MANIFEST_SCHEMA_VERSION,
     manifestId: `mawa-${context.now.getTime()}`,
     generatedAt,
     expiresAt,
-    pollAfterSeconds: 120,
+    // Poll faster while a reminder is live so its countdown stays fresh.
+    pollAfterSeconds: reminder ? 60 : 120,
     scene: {
       mode: "ambient",
       mood,
       weather,
       animation,
       companion: companionDirective,
+      reminder,
       panels: outputs.flatMap((output) => output.panels),
     },
     connectors: [...outputs.map((output) => output.state), ...plannedConnectors],

@@ -3,7 +3,11 @@ import type {
   ManifestConnector,
   ManifestContext,
   PanelSlot,
+  SceneReminder,
 } from "../manifest";
+
+/** How many minutes before a timed event Mawa starts nudging you. */
+const LEAD_MINUTES = 10;
 
 /**
  * Calendar via a secret iCal (.ics) URL — the "Secret address in iCal format"
@@ -210,6 +214,26 @@ function when(event: CalendarEvent): string {
   }).format(event.start);
 }
 
+/** The soonest timed event, if it starts within the lead window, as a reminder. */
+function reminderFrom(
+  feed: SlotDefinition,
+  events: CalendarEvent[],
+  now: Date,
+): SceneReminder | undefined {
+  const next = events.find((event) => !event.allDay);
+  if (!next) return undefined;
+  const minutesUntil = Math.round((next.start.getTime() - now.getTime()) / 60_000);
+  if (minutesUntil < 0 || minutesUntil > LEAD_MINUTES) return undefined;
+  return {
+    id: `${feed.connectorId}-${next.start.getTime()}`,
+    title: next.title,
+    when: minutesUntil <= 0 ? "starting now" : `in ${minutesUntil} min`,
+    minutesUntil,
+    slot: feed.slot,
+    accent: feed.accent,
+  };
+}
+
 function plannedState(feed: SlotDefinition, message: string): ConnectorOutput {
   return {
     state: { id: feed.connectorId, name: feed.name, status: "planned", message },
@@ -256,6 +280,7 @@ export function icsCalendarConnector(slot: Slot): ManifestConnector {
             message: next ? `${events.length} event(s) in the next 24 hours` : "Clear for 24 hours",
             lastUpdatedAt: context.now.toISOString(),
           },
+          reminder: reminderFrom(feed, events, context.now),
           panels: [
             {
               id: `${feed.connectorId}-next`,

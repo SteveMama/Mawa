@@ -53,6 +53,20 @@ export interface ConnectorState {
   lastUpdatedAt?: string;
 }
 
+/**
+ * A time-sensitive nudge (calendar event about to start) that the wall surfaces
+ * as a brief glowing card near the eyes. Only ever produced on the private
+ * (paired-device) path, since it carries the event title.
+ */
+export interface SceneReminder {
+  id: string;
+  title: string;
+  when: string;
+  minutesUntil: number;
+  slot: "personal" | "work";
+  accent: string;
+}
+
 export interface WeatherScene {
   condition: "clear" | "clouds" | "rain" | "snow" | "fog" | "thunder";
   temperatureC: number;
@@ -87,6 +101,7 @@ export interface SceneManifest {
     weather?: WeatherScene;
     animation?: SceneAnimation;
     companion?: CompanionDirective;
+    reminder?: SceneReminder;
     panels: ScenePanel[];
   };
   connectors: ConnectorState[];
@@ -161,6 +176,7 @@ export interface ManifestContext {
 export interface ConnectorOutput {
   state: ConnectorState;
   panels: ScenePanel[];
+  reminder?: SceneReminder;
   weather?: WeatherScene;
   suggestedMood?: MawaMood;
   suggestedAnimation?: SceneAnimation;

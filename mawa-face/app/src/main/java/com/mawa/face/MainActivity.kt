@@ -289,6 +289,15 @@ class MainActivity : ComponentActivity() {
                         currentThoughtAccent = null
                     }
                     maybeSpeakCompanionLine(snapshot.companionLine, snapshot.companionLineKey, snapshot.companionSpeechStyle)
+                    snapshot.reminder?.let { r ->
+                        eyeView.showReminder(
+                            r.id,
+                            r.slot.uppercase(Locale.US),
+                            r.whenText.uppercase(Locale.US),
+                            r.title,
+                            r.accent,
+                        )
+                    } ?: eyeView.clearReminder()
                     scenePollMs = (snapshot.pollAfterSeconds * 1000L).coerceIn(60_000L, 10 * 60_000L)
                     brainStatus = "brain: online  ${snapshot.manifestId}"
                 }.onFailure { error ->

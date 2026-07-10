@@ -9,6 +9,7 @@ import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
+import android.os.SystemClock
 import android.util.AttributeSet
 import android.view.View
 import com.mawa.face.scene.PanelSlot
@@ -57,6 +58,18 @@ class EyeView @JvmOverloads constructor(
     private var lastFrameNs = 0L
     private var zClock = 0f
     private var flashClock = 0f
+
+    // --- calendar reminder card (imminent event) --------------------------
+    private var reminderId: String? = null
+    private var reminderEyebrow = ""
+    private var reminderTitle = ""
+    private var reminderAccent = Color.parseColor("#A5D6A7")
+    private var reminderIntroAt = 0L
+    private var reminderSeenAt = 0L
+    private val reminderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textAlign = Paint.Align.CENTER
+        typeface = Typeface.DEFAULT_BOLD
+    }
 
     private val bodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val haloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
@@ -112,6 +125,36 @@ class EyeView @JvmOverloads constructor(
     private val flakes = ArrayList<Flake>()
     private var flakeKind: WeatherCondition? = null
 
+    /**
+     * Surface an imminent-event reminder. A new [id] triggers the "perk"
+     * (a blink); the same id just refreshes the countdown text. The card stays
+     * visible until [clearReminder] or until it ages out (brain went quiet).
+     */
+    fun showReminder(id: String, eyebrow: String, whenText: String, title: String, accent: String) {
+        val now = SystemClock.elapsedRealtime()
+        if (id != reminderId) {
+            reminderId = id
+            reminderIntroAt = now
+            engine.play(Gesture.BLINK)
+        }
+        reminderEyebrow = if (whenText.isBlank()) eyebrow else "$eyebrow · $whenText"
+        reminderTitle = title
+        reminderAccent = try {
+            Color.parseColor(accent)
+        } catch (_: IllegalArgumentException) {
+            Color.parseColor("#A5D6A7")
+        }
+        reminderSeenAt = now
+    }
+
+    fun clearReminder() {
+        reminderId = null
+    }
+
+    private companion object {
+        const val REMINDER_MAX_AGE_MS = 180_000L
+    }
+
     override fun onDraw(canvas: Canvas) {
         val now = System.nanoTime()
         val dt = if (lastFrameNs == 0L) 0.016f else min(0.05f, (now - lastFrameNs) / 1e9f)
@@ -136,6 +179,7 @@ class EyeView @JvmOverloads constructor(
         drawFocusFrame(canvas, cx, cy, eyeGap)
 
         updateAndDrawWeather(canvas, dt)
+        drawReminder(canvas)
 
         if (engine.sleeping) {
             zClock += dt
@@ -282,6 +326,53 @@ class EyeView @JvmOverloads constructor(
     private fun darken(c: Int, t: Float) = blend(c, Color.BLACK, t)
     private fun withAlpha(c: Int, a: Int) =
         Color.argb(a.coerceIn(0, 255), Color.red(c), Color.green(c), Color.blue(c))
+
+    /**
+     * A brief glowing card below the eyes announcing an imminent event, in the
+     * calendar's color. Fades/rises in, auto-fits long titles, and ages out on
+     * its own if the brain stops refreshing it.
+     */
+    private fun drawReminder(canvas: Canvas) {
+        if (reminderId == null || engine.sleeping || engine.covered) return
+        val now = SystemClock.elapsedRealtime()
+        if (now - reminderSeenAt > REMINDER_MAX_AGE_MS) {
+            reminderId = null
+            return
+        }
+        val intro = ((now - reminderIntroAt) / 260f).coerceIn(0f, 1f)
+        val ease = intro * intro * (3f - 2f * intro)
+        val cx = width / 2f
+        val baseY = height * 0.78f + (1f - ease) * height * 0.03f
+        val scale = 0.94f + 0.06f * ease
+
+        canvas.save()
+        canvas.scale(scale, scale, cx, baseY)
+
+        val glowR = width * 0.30f
+        haloPaint.shader = RadialGradient(
+            cx, baseY, glowR,
+            intArrayOf(withAlpha(reminderAccent, (66 * ease).toInt()), withAlpha(reminderAccent, 0)),
+            floatArrayOf(0f, 1f),
+            Shader.TileMode.CLAMP,
+        )
+        canvas.drawCircle(cx, baseY, glowR, haloPaint)
+        haloPaint.shader = null
+
+        reminderPaint.color = reminderAccent
+        reminderPaint.alpha = (205 * ease).toInt().coerceIn(0, 255)
+        reminderPaint.textSize = height * 0.032f
+        canvas.drawText(reminderEyebrow, cx, baseY - height * 0.048f, reminderPaint)
+
+        reminderPaint.textSize = height * 0.076f
+        val titleWidth = reminderPaint.measureText(reminderTitle)
+        val maxWidth = width * 0.9f
+        if (titleWidth > maxWidth) reminderPaint.textSize *= maxWidth / titleWidth
+        reminderPaint.color = lighten(reminderAccent, 0.45f)
+        reminderPaint.alpha = (255 * ease).toInt().coerceIn(0, 255)
+        canvas.drawText(reminderTitle, cx, baseY + height * 0.028f, reminderPaint)
+
+        canvas.restore()
+    }
 
     private fun drawFocusFrame(canvas: Canvas, cx: Float, cy: Float, eyeGap: Float) {
         if (!engine.shouldShowFocusFrame()) return
