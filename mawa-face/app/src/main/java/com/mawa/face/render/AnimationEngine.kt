@@ -19,11 +19,11 @@ enum class Mood(
     val blinkRateMul: Float,
 ) {
     NEUTRAL(1.00f, 0f, 1.00f, 1.00f, 1.0f),
-    HAPPY(1.00f, 0f, 0.80f, 1.05f, 1.0f),
-    GRUMPY(0.85f, -10f, 1.00f, 0.95f, 0.6f),
-    SLEEPY(0.55f, -4f, 1.00f, 0.90f, 0.5f),
-    SUSPICIOUS(0.70f, 6f, 1.00f, 0.85f, 1.2f),
-    EXCITED(1.00f, 2f, 0.95f, 1.30f, 1.4f),
+    HAPPY(0.94f, 0f, 0.64f, 1.10f, 1.0f),      // warm wide squint — clearly pleased
+    GRUMPY(0.70f, -17f, 1.03f, 0.90f, 0.55f),  // heavy, low, angled-down lids
+    SLEEPY(0.44f, -7f, 1.03f, 0.85f, 0.45f),   // droopy and dim
+    SUSPICIOUS(0.60f, 11f, 1.00f, 0.80f, 1.2f), // narrowed, sharp inward tilt
+    EXCITED(1.06f, 3f, 0.88f, 1.36f, 1.5f),    // wide open, big bright pupils
 }
 
 /** One-shot scripted animations layered on top of the current state. */

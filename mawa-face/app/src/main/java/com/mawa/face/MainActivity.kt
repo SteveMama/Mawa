@@ -116,6 +116,7 @@ class MainActivity : ComponentActivity() {
     private var firstTapAt = 0L
     private var lastTapAt = 0L
     private var scenePollMs = SCENE_CHECK_MS
+    private var lastSceneKickAt = 0L
     private var micPermissionRequestedAtLeastOnce = false
 
     private val permissions =
@@ -245,6 +246,19 @@ class MainActivity : ComponentActivity() {
         tracker?.stop()
         speech.shutdown()
         super.onDestroy()
+    }
+
+    /**
+     * Ask the brain for a fresh read right now, off the periodic cadence, when
+     * something happened worth reacting to (you arrived, a new person entered).
+     * Debounced so a burst of events can't hammer the free tier. This is what
+     * keeps Mawa's mood feeling tied to the room *now* rather than minutes late.
+     */
+    private fun kickScene() {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastSceneKickAt < SCENE_KICK_MIN_MS) return
+        lastSceneKickAt = now
+        refreshScene()
     }
 
     private fun refreshScene() {
@@ -648,6 +662,9 @@ class MainActivity : ComponentActivity() {
         if (recognitionActive && !recognizedIsMe) return  // a face, but not you — wait
         val now = SystemClock.elapsedRealtime()
         greetedThisVisit = true
+        // You just walked into view — let the brain re-read the room immediately
+        // so its mood reflects the arrival, not whatever it felt minutes ago.
+        kickScene()
         if (now - awaySinceMs > GREET_GAP_MS) {
             handler.postDelayed({ speech.say(TimeOfDay.greeting()) }, 500)
         }
@@ -663,6 +680,7 @@ class MainActivity : ComponentActivity() {
         if (count > prevFaceCount && count >= 2 && now > newPersonMutedUntil) {
             newPersonMutedUntil = now + 60_000
             speech.say("Hey! New person!")
+            kickScene()
         }
         prevFaceCount = count
     }
@@ -785,7 +803,8 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val DEVICE_ID = "oneplus-wall"
         private const val UPDATE_CHECK_MS = 15 * 60 * 1000L
-        private const val SCENE_CHECK_MS = 5 * 60 * 1000L
+        private const val SCENE_CHECK_MS = 2 * 60 * 1000L
+        private const val SCENE_KICK_MIN_MS = 20_000L
         private const val TELEMETRY_PUSH_MS = 12_000L
         private const val COMPANION_SPEECH_COOLDOWN_MS = 80_000L
         private const val GREET_GAP_MS = 30 * 60 * 1000L

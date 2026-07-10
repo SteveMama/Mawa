@@ -5,23 +5,29 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.RadialGradient
 import android.graphics.RectF
+import android.graphics.Shader
 import android.graphics.Typeface
-import android.os.SystemClock
 import android.util.AttributeSet
 import android.view.View
 import com.mawa.face.scene.PanelSlot
 import com.mawa.face.scene.ScenePanel
 import com.mawa.face.weather.WeatherCondition
-import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.random.Random
 
 /**
- * Fullscreen eye renderer. Pure black background (OLED pixels off), two
- * capsule-shaped eyes, drawn at display refresh rate via
- * postInvalidateOnAnimation. All motion comes from [engine].
+ * Fullscreen eye renderer. Pure black background (OLED pixels off) and two
+ * emissive, glowing capsule eyes that carry the whole personality: they light
+ * up in a mood-specific color, cast a soft halo, hold a bright catchlight, and
+ * squash/tilt/dim with feeling. Everything else that used to crowd the face
+ * (equalizer bars, orbiting motes, floating glyphs, corner text cards) is gone
+ * — the face owns the screen. Room data lives on the dashboard, not the wall.
+ *
+ * Drawn at display refresh rate via postInvalidateOnAnimation. All motion comes
+ * from [engine]; the look (color, glow, catchlight) is computed here.
  */
 class EyeView @JvmOverloads constructor(
     context: Context,
@@ -39,11 +45,9 @@ class EyeView @JvmOverloads constructor(
     /** Current sky + golden-hour warmth (0..1), driven from MainActivity. */
     var weather: WeatherCondition = WeatherCondition.CLEAR
     var warmth = 0f
+
+    /** Kept for the dashboard + debug overlay; not painted on the face anymore. */
     var scenePanels: List<ScenePanel> = emptyList()
-        set(value) {
-            field = value
-            scenePanelsUpdatedAt = SystemClock.elapsedRealtime()
-        }
     var cloudAnimation: CloudAnimation? = null
         set(value) {
             field = value
@@ -53,17 +57,13 @@ class EyeView @JvmOverloads constructor(
     private var lastFrameNs = 0L
     private var zClock = 0f
     private var flashClock = 0f
-    private var musicPhase = 0f
-    private var glyphSpawnAccumulator = 0f
-    private var scenePanelsUpdatedAt = 0L
 
-    private val scleraPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#F5F2EA")   // warm off-white
+    private val bodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val haloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val pupilPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val highlightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-    }
-    private val pupilPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#0B0B0B")
-        style = Paint.Style.FILL
+        color = Color.WHITE
     }
     private val lidPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.BLACK
@@ -101,18 +101,6 @@ class EyeView @JvmOverloads constructor(
         color = Color.parseColor("#35404A")
         strokeWidth = 2f
     }
-    private val auraPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-    }
-    private val barPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-        color = Color.parseColor("#5B83A6")
-    }
-    private val musicPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#91C4E8")
-        textAlign = Paint.Align.CENTER
-        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-    }
     private val focusPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 3f
@@ -121,26 +109,7 @@ class EyeView @JvmOverloads constructor(
     private val eyePath = Path()
 
     private class Flake(var x: Float, var y: Float, var v: Float, var drift: Float, var r: Float)
-    private class MusicGlyph(
-        var x: Float,
-        var y: Float,
-        var vx: Float,
-        var vy: Float,
-        var age: Float,
-        var ttl: Float,
-        val glyph: String,
-        val size: Float,
-    )
-    private class OrbitMote(
-        var angle: Float,
-        var radius: Float,
-        var speed: Float,
-        var size: Float,
-        var alphaBias: Float,
-    )
     private val flakes = ArrayList<Flake>()
-    private val glyphs = ArrayList<MusicGlyph>()
-    private val orbitMotes = ArrayList<OrbitMote>()
     private var flakeKind: WeatherCondition? = null
 
     override fun onDraw(canvas: Canvas) {
@@ -155,161 +124,164 @@ class EyeView @JvmOverloads constructor(
 
         val cx = width / 2f + engine.driftX
         val cy = height / 2f + engine.driftY
-        val eyeGap = width * 0.28f
+        val eyeGap = width * 0.30f
 
-        drawCompanionExpressionBackdrop(canvas, cx, cy, eyeGap, dt)
-        drawMusicBackdrop(canvas, cx, cy, eyeGap, dt)
-        drawAtmosphere(canvas, cx, cy, eyeGap, dt)
-        drawEye(canvas, cx - eyeGap / 2f, cy, engine.left)
-        drawEye(canvas, cx + eyeGap / 2f, cy, engine.right)
+        val (core, halo) = eyeColors()
+
+        // Halos first (behind both eyes), then the glowing bodies on top.
+        drawEyeHalo(canvas, cx - eyeGap / 2f, cy, halo, engine.left)
+        drawEyeHalo(canvas, cx + eyeGap / 2f, cy, halo, engine.right)
+        drawEye(canvas, cx - eyeGap / 2f, cy, engine.left, core, halo)
+        drawEye(canvas, cx + eyeGap / 2f, cy, engine.right, core, halo)
         drawFocusFrame(canvas, cx, cy, eyeGap)
 
         updateAndDrawWeather(canvas, dt)
-        updateAndDrawMusicGlyphs(canvas, cx, cy, dt)
-        drawScenePanels(canvas)
 
         if (engine.sleeping) {
             zClock += dt
             drawZzz(canvas, cx + eyeGap / 2f + width * 0.06f, cy - height * 0.16f)
         }
 
-        if (debug) drawCalibrationOverlay(canvas)
+        if (debug) {
+            drawScenePanels(canvas)
+            drawCalibrationOverlay(canvas)
+        }
 
         postInvalidateOnAnimation()
     }
 
-    private fun drawMusicBackdrop(canvas: Canvas, cx: Float, cy: Float, eyeGap: Float, dt: Float) {
-        val auraLevel = engine.auraLevel()
-        val barLevel = engine.barLevel()
+    // --- color: mood is the primary read, energy/music tints toward palette ---
+
+    private fun eyeColors(): Pair<Int, Int> {
+        var core: Int
+        var halo: Int
+        when (engine.currentMood()) {
+            Mood.HAPPY -> { core = 0xFFFFF0C8.toInt(); halo = 0xFFF2B24E.toInt() }
+            Mood.GRUMPY -> { core = 0xFFBFC9CE.toInt(); halo = 0xFF4E626F.toInt() }
+            Mood.SLEEPY -> { core = 0xFFEBD3AC.toInt(); halo = 0xFF6A5640.toInt() }
+            Mood.SUSPICIOUS -> { core = 0xFFE6D4FF.toInt(); halo = 0xFF7A5AD6.toInt() }
+            Mood.EXCITED -> { core = 0xFFFFFFFF.toInt(); halo = 0xFFFF7BC8.toInt() }
+            Mood.NEUTRAL -> { core = 0xFFDFF6FF.toInt(); halo = 0xFF4FB4E6.toInt() }
+        }
+
+        // When the room feels charged/musical, drift toward the cloud palette.
+        val energy = engine.visualEnergy()
+        if (energy > 0.25f) {
+            val pal = paletteColors(engine.palette())
+            val t = ((energy - 0.25f) / 0.75f).coerceIn(0f, 0.7f)
+            core = blend(core, lighten(pal.secondary, 0.30f), t)
+            halo = blend(halo, pal.primary, t)
+        }
+
+        // A little golden-hour warmth on the glow.
+        if (warmth > 0.02f) halo = blend(halo, 0xFFE9A25B.toInt(), warmth * 0.35f)
+
+        if (engine.isSleeping()) {
+            core = darken(core, 0.45f)
+            halo = darken(halo, 0.55f)
+        }
+        return core to halo
+    }
+
+    private fun drawEyeHalo(canvas: Canvas, ex: Float, ey: Float, halo: Int, p: EyeParams) {
+        val open = p.openness.coerceIn(0f, 1.2f)
+        val openScale = 0.32f + 0.68f * open
+        if (openScale <= 0.02f) return
+        val energy = engine.visualEnergy()
         val beat = engine.beatLevel()
-        val expressiveness = engine.expressivenessLevel()
-        if (auraLevel <= 0.05f && barLevel <= 0.05f && beat <= 0.12f &&
-            expressiveness <= 0.08f && !engine.identityLockEnabled
-        ) return
-
-        val palette = paletteColors(engine.palette())
-
-        val pulseAlpha = (38 + 150 * auraLevel + 120 * beat + 78 * expressiveness).toInt().coerceIn(0, 235)
-        auraPaint.color = Color.argb(pulseAlpha, Color.red(palette.primary), Color.green(palette.primary), Color.blue(palette.primary))
-        val radius = width * (0.15f + 0.10f * auraLevel)
-        canvas.drawCircle(cx - eyeGap / 2f, cy, radius, auraPaint)
-        canvas.drawCircle(cx + eyeGap / 2f, cy, radius, auraPaint)
-
-        auraPaint.color = Color.argb(
-            (24 + 70 * auraLevel).toInt().coerceIn(0, 110),
-            Color.red(palette.secondary),
-            Color.green(palette.secondary),
-            Color.blue(palette.secondary),
+        val radius = (width * 0.155f) * (1.20f + 0.34f * energy + 0.46f * beat) * openScale
+        if (radius < 1f) return
+        val alpha = (78 + 92 * energy + 96 * beat).toInt().coerceIn(48, 226)
+        haloPaint.shader = RadialGradient(
+            ex, ey, radius,
+            intArrayOf(withAlpha(halo, (alpha * openScale).toInt().coerceIn(0, 255)), withAlpha(halo, 0)),
+            floatArrayOf(0f, 1f),
+            Shader.TileMode.CLAMP,
         )
-        canvas.drawCircle(cx, cy, width * (0.14f + 0.08f * auraLevel), auraPaint)
-
-        val barCount = 9
-        val barWidth = width * 0.012f
-        val gap = width * 0.009f
-        val totalWidth = barCount * barWidth + (barCount - 1) * gap
-        val baseX = cx - totalWidth / 2f
-        val baseY = height * 0.91f
-        for (index in 0 until barCount) {
-            val phase = musicPhase * 3.7f + index * 0.55f
-            val heightFactor = (0.22f + 0.78f * barLevel) *
-                (0.35f + 0.65f * (0.5f + 0.5f * sin(phase)))
-            val barHeight = height * 0.11f * heightFactor
-            barPaint.color = palette.primary
-            barPaint.alpha = (24 + 170 * barLevel + 30 * beat).toInt().coerceIn(0, 225)
-            val left = baseX + index * (barWidth + gap)
-            canvas.drawRoundRect(
-                left,
-                baseY - barHeight,
-                left + barWidth,
-                baseY,
-                barWidth / 2,
-                barWidth / 2,
-                barPaint,
-            )
-        }
-
-        musicPhase += dt
+        canvas.drawCircle(ex, ey, radius, haloPaint)
+        haloPaint.shader = null
     }
 
-    private fun drawCompanionExpressionBackdrop(canvas: Canvas, cx: Float, cy: Float, eyeGap: Float, dt: Float) {
-        val protective = engine.protectiveLevel()
-        val warmth = engine.warmthLevel()
-        val playful = engine.playfulLevel()
-        val study = engine.studyLevel()
-        val palette = paletteColors(engine.palette())
+    private fun drawEye(canvas: Canvas, ex: Float, ey: Float, p: EyeParams, core: Int, halo: Int) {
+        val eyeW = width * 0.155f
+        val eyeH = eyeW * 1.5f * p.squash
 
-        if (warmth > 0.08f) {
-            auraPaint.color = Color.argb(
-                (28 + 108 * warmth).toInt().coerceIn(0, 190),
-                Color.red(palette.secondary),
-                Color.green(palette.secondary),
-                Color.blue(palette.secondary),
+        val bounds = RectF(ex - eyeW / 2, ey - eyeH / 2, ex + eyeW / 2, ey + eyeH / 2)
+        eyePath.reset()
+        eyePath.addRoundRect(bounds, eyeW / 2, eyeW / 2, Path.Direction.CW)
+
+        // Glowing body: bright, near-white core fading to the mood color, top-lit.
+        bodyPaint.shader = RadialGradient(
+            ex, ey - eyeH * 0.12f, eyeH * 0.72f,
+            intArrayOf(lighten(core, 0.55f), core, darken(core, 0.26f)),
+            floatArrayOf(0f, 0.5f, 1f),
+            Shader.TileMode.CLAMP,
+        )
+        canvas.drawPath(eyePath, bodyPaint)
+        bodyPaint.shader = null
+
+        canvas.save()
+        canvas.clipPath(eyePath)
+
+        // Soft dark iris/pupil (a deep tint of the glow, never a flat black hole).
+        val pr = eyeW * 0.26f * p.pupilScale
+        val px = ex + p.pupilX * eyeW * 0.30f
+        val py = ey + p.pupilY * eyeH * 0.28f
+        val pupilCol = darken(halo, 0.68f)
+        pupilPaint.shader = RadialGradient(
+            px, py, pr.coerceAtLeast(1f),
+            intArrayOf(pupilCol, pupilCol, withAlpha(pupilCol, 0)),
+            floatArrayOf(0f, 0.68f, 1f),
+            Shader.TileMode.CLAMP,
+        )
+        canvas.drawCircle(px, py, pr, pupilPaint)
+        pupilPaint.shader = null
+
+        // Wet catchlight: a bright glint plus a smaller secondary — the single
+        // strongest cue that this is a living eye and not painted-on plastic.
+        val hlR = eyeW * 0.12f
+        highlightPaint.alpha = 235
+        canvas.drawCircle(px - eyeW * 0.14f, py - eyeH * 0.13f, hlR, highlightPaint)
+        highlightPaint.alpha = 150
+        canvas.drawCircle(px + eyeW * 0.07f, py + eyeH * 0.05f, hlR * 0.45f, highlightPaint)
+
+        // Upper lid: covers (1-openness) mostly from the top, tilted by lidAngle.
+        val closed = 1f - p.openness
+        if (closed > 0.005f) {
+            val topLid = closed * eyeH * 0.72f
+            canvas.save()
+            canvas.rotate(p.lidAngle, ex, bounds.top + topLid)
+            canvas.drawRect(
+                bounds.left - eyeW, bounds.top - eyeH,
+                bounds.right + eyeW, bounds.top + topLid, lidPaint
             )
-            val radius = width * (0.11f + warmth * 0.08f)
-            canvas.drawCircle(cx - eyeGap / 2f, cy + height * 0.01f, radius, auraPaint)
-            canvas.drawCircle(cx + eyeGap / 2f, cy + height * 0.01f, radius, auraPaint)
-        }
+            canvas.restore()
 
-        if (protective > 0.08f || study > 0.08f) {
-            focusPaint.alpha = (72 + 145 * maxOf(protective, study)).toInt().coerceIn(0, 220)
-            val sweep = (0.5f + 0.5f * sin(musicPhase * (1.1f + study * 0.8f))).coerceIn(0f, 1f)
-            val y = cy - height * 0.18f + sweep * height * 0.36f
-            canvas.drawLine(cx - width * 0.24f, y, cx + width * 0.24f, y, focusPaint)
+            // Lower lid rises a little as the eye closes.
+            val bottomLid = closed * eyeH * 0.28f
+            canvas.drawRect(
+                bounds.left - eyeW, bounds.bottom - bottomLid,
+                bounds.right + eyeW, bounds.bottom + eyeH, lidPaint
+            )
         }
-
-        if (playful > 0.12f) {
-            barPaint.color = palette.secondary
-            barPaint.alpha = (40 + 120 * playful).toInt().coerceIn(0, 210)
-            val dotCount = 5
-            for (index in 0 until dotCount) {
-                val phase = musicPhase * 2.8f + index * 0.9f
-                val x = cx + sin(phase).toFloat() * width * (0.12f + index * 0.01f)
-                val y = cy - height * 0.19f + cos(phase.toDouble()).toFloat() * height * 0.05f
-                canvas.drawCircle(x, y, width * (0.004f + playful * 0.002f), barPaint)
-            }
-        }
-
-        musicPhase += dt * (0.15f + playful * 0.10f + study * 0.05f)
+        canvas.restore()
     }
 
-    private fun drawAtmosphere(canvas: Canvas, cx: Float, cy: Float, eyeGap: Float, dt: Float) {
-        val expressiveness = engine.expressivenessLevel()
-        val aura = engine.auraLevel()
-        if (expressiveness <= 0.08f && aura <= 0.07f) {
-            orbitMotes.clear()
-            return
-        }
+    // --- color helpers -----------------------------------------------------
 
-        val palette = paletteColors(engine.palette())
-        val desired = (4 + ((expressiveness + aura) * 14f).toInt()).coerceIn(4, 16)
-        while (orbitMotes.size < desired) {
-            orbitMotes.add(
-                OrbitMote(
-                    angle = Random.nextFloat() * (Math.PI * 2.0).toFloat(),
-                    radius = width * (0.12f + Random.nextFloat() * 0.18f),
-                    speed = 0.18f + Random.nextFloat() * 0.55f,
-                    size = width * (0.003f + Random.nextFloat() * 0.004f),
-                    alphaBias = 0.45f + Random.nextFloat() * 0.55f,
-                )
-            )
-        }
-        while (orbitMotes.size > desired) orbitMotes.removeAt(orbitMotes.lastIndex)
-
-        for ((index, mote) in orbitMotes.withIndex()) {
-            mote.angle += dt * mote.speed * (0.6f + expressiveness * 1.3f)
-            val anchorX = if (index % 2 == 0) cx - eyeGap / 2f else cx + eyeGap / 2f
-            val offsetY = sin(mote.angle * 0.7f + index).toFloat() * height * 0.035f
-            val x = anchorX + cos(mote.angle.toDouble()).toFloat() * mote.radius
-            val y = cy + sin(mote.angle.toDouble()).toFloat() * mote.radius * 0.55f + offsetY
-            auraPaint.color = Color.argb(
-                (28 + 135 * expressiveness * mote.alphaBias + 70 * aura).toInt().coerceIn(0, 205),
-                Color.red(if (index % 3 == 0) palette.secondary else palette.primary),
-                Color.green(if (index % 3 == 0) palette.secondary else palette.primary),
-                Color.blue(if (index % 3 == 0) palette.secondary else palette.primary),
-            )
-            canvas.drawCircle(x, y, mote.size * (0.95f + 0.95f * expressiveness), auraPaint)
-        }
+    private fun blend(a: Int, b: Int, t: Float): Int {
+        val u = t.coerceIn(0f, 1f)
+        return Color.rgb(
+            (Color.red(a) + (Color.red(b) - Color.red(a)) * u).toInt().coerceIn(0, 255),
+            (Color.green(a) + (Color.green(b) - Color.green(a)) * u).toInt().coerceIn(0, 255),
+            (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * u).toInt().coerceIn(0, 255),
+        )
     }
+
+    private fun lighten(c: Int, t: Float) = blend(c, Color.WHITE, t)
+    private fun darken(c: Int, t: Float) = blend(c, Color.BLACK, t)
+    private fun withAlpha(c: Int, a: Int) =
+        Color.argb(a.coerceIn(0, 255), Color.red(c), Color.green(c), Color.blue(c))
 
     private fun drawFocusFrame(canvas: Canvas, cx: Float, cy: Float, eyeGap: Float) {
         if (!engine.shouldShowFocusFrame()) return
@@ -325,64 +297,6 @@ class EyeView @JvmOverloads constructor(
         canvas.drawLine(rightX, bracketY, rightX, bracketY + bracketHeight, focusPaint)
         canvas.drawLine(rightX - span, bracketY, rightX, bracketY, focusPaint)
         canvas.drawLine(rightX - span, bracketY + bracketHeight, rightX, bracketY + bracketHeight, focusPaint)
-    }
-
-    private fun updateAndDrawMusicGlyphs(canvas: Canvas, cx: Float, cy: Float, dt: Float) {
-        val vibe = engine.glyphLevel()
-        val palette = paletteColors(engine.palette())
-        if (vibe > 0.10f) {
-            val spawnRate = 1.2f + vibe * 10f + engine.beatLevel() * 5f
-            glyphSpawnAccumulator += dt * spawnRate
-            while (glyphSpawnAccumulator >= 1f) {
-                glyphSpawnAccumulator -= 1f
-                spawnGlyph(cx, cy, vibe)
-            }
-        } else {
-            glyphSpawnAccumulator = 0f
-        }
-
-        val iterator = glyphs.iterator()
-        while (iterator.hasNext()) {
-            val glyph = iterator.next()
-            glyph.age += dt
-            glyph.x += glyph.vx * dt
-            glyph.y += glyph.vy * dt
-            if (glyph.age >= glyph.ttl) {
-                iterator.remove()
-                continue
-            }
-            val alpha = ((1f - glyph.age / glyph.ttl) * 220f).toInt().coerceIn(0, 220)
-            musicPaint.alpha = alpha
-            musicPaint.color = palette.secondary
-            musicPaint.textSize = glyph.size
-            canvas.drawText(glyph.glyph, glyph.x, glyph.y, musicPaint)
-        }
-    }
-
-    private fun spawnGlyph(cx: Float, cy: Float, vibe: Float) {
-        if (glyphs.size > 24) return
-        val side = if (Random.nextBoolean()) -1f else 1f
-        val startX = cx + side * width * (0.13f + Random.nextFloat() * 0.18f)
-        val startY = cy + height * (Random.nextFloat() * 0.24f - 0.12f)
-        val glyph = when (Random.nextInt(5)) {
-            0 -> "♪"
-            1 -> "♫"
-            2 -> "~"
-            3 -> "<3"
-            else -> ":)"
-        }
-        glyphs.add(
-            MusicGlyph(
-                x = startX,
-                y = startY,
-                vx = side * width * (0.008f + Random.nextFloat() * 0.02f),
-                vy = -height * (0.03f + Random.nextFloat() * 0.06f),
-                age = 0f,
-                ttl = 1.2f + Random.nextFloat() * 1.4f,
-                glyph = glyph,
-                size = height * (0.046f + vibe * 0.04f + Random.nextFloat() * 0.024f),
-            )
-        )
     }
 
     private data class PaletteColors(val primary: Int, val secondary: Int)
@@ -410,14 +324,9 @@ class EyeView @JvmOverloads constructor(
         )
     }
 
-    /** Render at most four short cloud-composed cards without crowding the face. */
+    /** Debug-only: the cloud's scene cards. On the wall Mawa is a creature, not
+     * a dashboard — this content lives on mawa-brain.vercel.app instead. */
     private fun drawScenePanels(canvas: Canvas) {
-        val age = SystemClock.elapsedRealtime() - scenePanelsUpdatedAt
-        if (!debug && (scenePanels.isEmpty() || age > PANEL_VISIBLE_MS)) return
-        val fade =
-            if (debug || age <= PANEL_FADE_AFTER_MS) 1f
-            else ((PANEL_VISIBLE_MS - age).toFloat() / (PANEL_VISIBLE_MS - PANEL_FADE_AFTER_MS))
-                .coerceIn(0f, 1f)
         for (panel in scenePanels.take(4)) {
             val left = panel.slot == PanelSlot.TOP_LEFT || panel.slot == PanelSlot.BOTTOM_LEFT
             val top = panel.slot == PanelSlot.TOP_LEFT || panel.slot == PanelSlot.TOP_RIGHT
@@ -431,19 +340,19 @@ class EyeView @JvmOverloads constructor(
                 Color.parseColor("#8FA6C0")
             }
 
-            panelPaint.alpha = (155 * fade).toInt().coerceIn(0, 255)
+            panelPaint.alpha = 155
             panelPaint.textSize = height * 0.024f
             canvas.drawText(panel.eyebrow.uppercase(), anchorX, anchorY, panelPaint)
-            panelPaint.alpha = (220 * fade).toInt().coerceIn(0, 255)
+            panelPaint.alpha = 220
             panelPaint.textSize = height * 0.046f
             canvas.drawText(panel.title, anchorX, anchorY + height * 0.055f, panelPaint)
-            panelPaint.alpha = (135 * fade).toInt().coerceIn(0, 255)
+            panelPaint.alpha = 135
             panelPaint.textSize = height * 0.027f
             canvas.drawText(panel.detail, anchorX, anchorY + height * 0.095f, panelPaint)
 
             val ruleWidth = width * 0.12f
             val ruleStart = if (left) anchorX else anchorX - ruleWidth
-            panelRulePaint.alpha = (120 * fade).toInt().coerceIn(0, 255)
+            panelRulePaint.alpha = 120
             canvas.drawLine(
                 ruleStart,
                 anchorY + height * 0.112f,
@@ -452,11 +361,6 @@ class EyeView @JvmOverloads constructor(
                 panelRulePaint,
             )
         }
-    }
-
-    companion object {
-        private const val PANEL_VISIBLE_MS = 8_000L
-        private const val PANEL_FADE_AFTER_MS = 5_000L
     }
 
     /**
@@ -563,47 +467,5 @@ class EyeView @JvmOverloads constructor(
             zPaint.textSize = 40f + i * 14f
             canvas.drawText("z", x, y, zPaint)
         }
-    }
-
-    private fun drawEye(canvas: Canvas, ex: Float, ey: Float, p: EyeParams) {
-        val eyeW = width * 0.135f
-        val eyeH = eyeW * 1.45f * p.squash
-
-        val bounds = RectF(ex - eyeW / 2, ey - eyeH / 2, ex + eyeW / 2, ey + eyeH / 2)
-        eyePath.reset()
-        eyePath.addRoundRect(bounds, eyeW / 2, eyeW / 2, Path.Direction.CW)
-
-        // Sclera
-        canvas.drawPath(eyePath, scleraPaint)
-
-        // Pupil + lids clipped to the sclera shape
-        canvas.save()
-        canvas.clipPath(eyePath)
-
-        val pr = eyeW * 0.30f * p.pupilScale
-        val px = ex + p.pupilX * eyeW * 0.32f
-        val py = ey + p.pupilY * eyeH * 0.30f
-        canvas.drawCircle(px, py, pr, pupilPaint)
-
-        // Upper lid: covers (1-openness) mostly from the top, tilted by lidAngle
-        val closed = 1f - p.openness
-        if (closed > 0.005f) {
-            val topLid = closed * eyeH * 0.72f
-            canvas.save()
-            canvas.rotate(p.lidAngle, ex, bounds.top + topLid)
-            canvas.drawRect(
-                bounds.left - eyeW, bounds.top - eyeH,
-                bounds.right + eyeW, bounds.top + topLid, lidPaint
-            )
-            canvas.restore()
-
-            // Lower lid rises a little as the eye closes
-            val bottomLid = closed * eyeH * 0.28f
-            canvas.drawRect(
-                bounds.left - eyeW, bounds.bottom - bottomLid,
-                bounds.right + eyeW, bounds.bottom + eyeH, lidPaint
-            )
-        }
-        canvas.restore()
     }
 }
