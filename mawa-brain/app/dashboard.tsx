@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { LiveDeviceState } from "../lib/live-state";
 import type { SceneManifest } from "../lib/manifest";
 import type { RoomMomentStore } from "../lib/room-moments";
@@ -40,6 +40,8 @@ export function Dashboard() {
   const [companionInput, setCompanionInput] = useState("How are you feeling on the wall tonight?");
   const [companionReply, setCompanionReply] = useState<string | null>(null);
 
+  const dashboardBuild = useMemo(() => Date.now().toString(36), []);
+
   const authHeaders = useCallback((): HeadersInit => {
     return adminToken.trim() ? { Authorization: `Bearer ${adminToken.trim()}` } : {};
   }, [adminToken]);
@@ -53,6 +55,7 @@ export function Dashboard() {
         lon: String(location.longitude),
         device: "dashboard-preview",
       });
+      query.set("v", dashboardBuild);
       const response = await fetch(`/api/manifest?${query}`, { cache: "no-store" });
       if (!response.ok) throw new Error(`Manifest returned ${response.status}`);
       setManifest((await response.json()) as SceneManifest);
@@ -64,17 +67,17 @@ export function Dashboard() {
   }, []);
 
   const loadCompanionStatus = useCallback(async () => {
-    const response = await fetch("/api/companion/status", {
-      cache: "no-store",
-      headers: authHeaders(),
-    });
+      const response = await fetch(`/api/companion/status?v=${dashboardBuild}`, {
+        cache: "no-store",
+        headers: authHeaders(),
+      });
     if (!response.ok) throw new Error(`Companion status returned ${response.status}`);
     setCompanionStatus((await response.json()) as CompanionStatusResponse);
   }, [authHeaders]);
 
   const loadLiveState = useCallback(async () => {
     try {
-      const response = await fetch("/api/device/telemetry", {
+      const response = await fetch(`/api/device/telemetry?v=${dashboardBuild}`, {
         cache: "no-store",
         headers: authHeaders(),
       });
@@ -90,7 +93,7 @@ export function Dashboard() {
 
   const loadRoomMoments = useCallback(async () => {
     try {
-      const response = await fetch("/api/device/moment?deviceId=oneplus-wall", {
+      const response = await fetch(`/api/device/moment?deviceId=oneplus-wall&v=${dashboardBuild}`, {
         cache: "no-store",
         headers: authHeaders(),
       });
@@ -102,7 +105,20 @@ export function Dashboard() {
       setRoomMoments(null);
       setMomentError(cause instanceof Error ? cause.message : "Could not load room moments");
     }
-  }, [authHeaders]);
+  }, [authHeaders, dashboardBuild]);
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem("mawa_dashboard_admin_token");
+      if (stored) setAdminToken(stored);
+      const params = new URLSearchParams(window.location.search);
+      const tokenFromUrl = params.get("adminToken")?.trim();
+      if (tokenFromUrl) {
+        setAdminToken(tokenFromUrl);
+        window.localStorage.setItem("mawa_dashboard_admin_token", tokenFromUrl);
+      }
+    } catch {}
+  }, []);
 
   useEffect(() => {
     load();
@@ -117,6 +133,16 @@ export function Dashboard() {
     }, 5_000);
     return () => window.clearInterval(interval);
   }, [load, loadCompanionStatus, loadLiveState, loadRoomMoments]);
+
+  useEffect(() => {
+    try {
+      if (adminToken.trim()) {
+        window.localStorage.setItem("mawa_dashboard_admin_token", adminToken.trim());
+      } else {
+        window.localStorage.removeItem("mawa_dashboard_admin_token");
+      }
+    } catch {}
+  }, [adminToken]);
 
   function useMyLocation() {
     if (!navigator.geolocation) return;

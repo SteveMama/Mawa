@@ -62,6 +62,9 @@ Constraints:
 - if the room feels alive, playful, musical, eerie, or charged, increase
   expressiveness, aura, sway, or bounce honestly
 - expressiveness should materially change how alive or theatrical the face feels
+- avoid timid middle values when the room clearly has a tone; if the feeling is
+  strong, let energy/expressiveness/aura/bounce move strongly enough to be
+  obvious from across the room
 - bars/glyphs are for when the companion feels musical or playful, not always
 - energy, expressiveness, aura, bars, glyphs, sway, bounce, squint: 0..1
 - blinkRate: 0.6..1.8

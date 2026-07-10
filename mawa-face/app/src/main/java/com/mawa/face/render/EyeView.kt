@@ -183,25 +183,25 @@ class EyeView @JvmOverloads constructor(
         val barLevel = engine.barLevel()
         val beat = engine.beatLevel()
         val expressiveness = engine.expressivenessLevel()
-        if (auraLevel <= 0.08f && barLevel <= 0.08f && beat <= 0.18f &&
-            expressiveness <= 0.12f && !engine.identityLockEnabled
+        if (auraLevel <= 0.05f && barLevel <= 0.05f && beat <= 0.12f &&
+            expressiveness <= 0.08f && !engine.identityLockEnabled
         ) return
 
         val palette = paletteColors(engine.palette())
 
-        val pulseAlpha = (26 + 110 * auraLevel + 90 * beat + 55 * expressiveness).toInt().coerceIn(0, 205)
+        val pulseAlpha = (38 + 150 * auraLevel + 120 * beat + 78 * expressiveness).toInt().coerceIn(0, 235)
         auraPaint.color = Color.argb(pulseAlpha, Color.red(palette.primary), Color.green(palette.primary), Color.blue(palette.primary))
-        val radius = width * (0.13f + 0.07f * auraLevel)
+        val radius = width * (0.15f + 0.10f * auraLevel)
         canvas.drawCircle(cx - eyeGap / 2f, cy, radius, auraPaint)
         canvas.drawCircle(cx + eyeGap / 2f, cy, radius, auraPaint)
 
         auraPaint.color = Color.argb(
-            (18 + 46 * auraLevel).toInt().coerceIn(0, 86),
+            (24 + 70 * auraLevel).toInt().coerceIn(0, 110),
             Color.red(palette.secondary),
             Color.green(palette.secondary),
             Color.blue(palette.secondary),
         )
-        canvas.drawCircle(cx, cy, width * (0.12f + 0.05f * auraLevel), auraPaint)
+        canvas.drawCircle(cx, cy, width * (0.14f + 0.08f * auraLevel), auraPaint)
 
         val barCount = 9
         val barWidth = width * 0.012f
@@ -213,7 +213,7 @@ class EyeView @JvmOverloads constructor(
             val phase = musicPhase * 3.7f + index * 0.55f
             val heightFactor = (0.22f + 0.78f * barLevel) *
                 (0.35f + 0.65f * (0.5f + 0.5f * sin(phase)))
-            val barHeight = height * 0.08f * heightFactor
+            val barHeight = height * 0.11f * heightFactor
             barPaint.color = palette.primary
             barPaint.alpha = (24 + 170 * barLevel + 30 * beat).toInt().coerceIn(0, 225)
             val left = baseX + index * (barWidth + gap)
@@ -240,18 +240,18 @@ class EyeView @JvmOverloads constructor(
 
         if (warmth > 0.08f) {
             auraPaint.color = Color.argb(
-                (18 + 74 * warmth).toInt().coerceIn(0, 150),
+                (28 + 108 * warmth).toInt().coerceIn(0, 190),
                 Color.red(palette.secondary),
                 Color.green(palette.secondary),
                 Color.blue(palette.secondary),
             )
-            val radius = width * (0.09f + warmth * 0.05f)
+            val radius = width * (0.11f + warmth * 0.08f)
             canvas.drawCircle(cx - eyeGap / 2f, cy + height * 0.01f, radius, auraPaint)
             canvas.drawCircle(cx + eyeGap / 2f, cy + height * 0.01f, radius, auraPaint)
         }
 
         if (protective > 0.08f || study > 0.08f) {
-            focusPaint.alpha = (50 + 110 * maxOf(protective, study)).toInt().coerceIn(0, 190)
+            focusPaint.alpha = (72 + 145 * maxOf(protective, study)).toInt().coerceIn(0, 220)
             val sweep = (0.5f + 0.5f * sin(musicPhase * (1.1f + study * 0.8f))).coerceIn(0f, 1f)
             val y = cy - height * 0.18f + sweep * height * 0.36f
             canvas.drawLine(cx - width * 0.24f, y, cx + width * 0.24f, y, focusPaint)
@@ -259,7 +259,7 @@ class EyeView @JvmOverloads constructor(
 
         if (playful > 0.12f) {
             barPaint.color = palette.secondary
-            barPaint.alpha = (28 + 80 * playful).toInt().coerceIn(0, 160)
+            barPaint.alpha = (40 + 120 * playful).toInt().coerceIn(0, 210)
             val dotCount = 5
             for (index in 0 until dotCount) {
                 val phase = musicPhase * 2.8f + index * 0.9f
@@ -275,13 +275,13 @@ class EyeView @JvmOverloads constructor(
     private fun drawAtmosphere(canvas: Canvas, cx: Float, cy: Float, eyeGap: Float, dt: Float) {
         val expressiveness = engine.expressivenessLevel()
         val aura = engine.auraLevel()
-        if (expressiveness <= 0.14f && aura <= 0.12f) {
+        if (expressiveness <= 0.08f && aura <= 0.07f) {
             orbitMotes.clear()
             return
         }
 
         val palette = paletteColors(engine.palette())
-        val desired = (3 + ((expressiveness + aura) * 10f).toInt()).coerceIn(3, 12)
+        val desired = (4 + ((expressiveness + aura) * 14f).toInt()).coerceIn(4, 16)
         while (orbitMotes.size < desired) {
             orbitMotes.add(
                 OrbitMote(
@@ -302,12 +302,12 @@ class EyeView @JvmOverloads constructor(
             val x = anchorX + cos(mote.angle.toDouble()).toFloat() * mote.radius
             val y = cy + sin(mote.angle.toDouble()).toFloat() * mote.radius * 0.55f + offsetY
             auraPaint.color = Color.argb(
-                (22 + 105 * expressiveness * mote.alphaBias + 48 * aura).toInt().coerceIn(0, 170),
+                (28 + 135 * expressiveness * mote.alphaBias + 70 * aura).toInt().coerceIn(0, 205),
                 Color.red(if (index % 3 == 0) palette.secondary else palette.primary),
                 Color.green(if (index % 3 == 0) palette.secondary else palette.primary),
                 Color.blue(if (index % 3 == 0) palette.secondary else palette.primary),
             )
-            canvas.drawCircle(x, y, mote.size * (0.8f + 0.6f * expressiveness), auraPaint)
+            canvas.drawCircle(x, y, mote.size * (0.95f + 0.95f * expressiveness), auraPaint)
         }
     }
 
@@ -330,8 +330,8 @@ class EyeView @JvmOverloads constructor(
     private fun updateAndDrawMusicGlyphs(canvas: Canvas, cx: Float, cy: Float, dt: Float) {
         val vibe = engine.glyphLevel()
         val palette = paletteColors(engine.palette())
-        if (vibe > 0.18f) {
-            val spawnRate = 0.8f + vibe * 8f + engine.beatLevel() * 4f
+        if (vibe > 0.10f) {
+            val spawnRate = 1.2f + vibe * 10f + engine.beatLevel() * 5f
             glyphSpawnAccumulator += dt * spawnRate
             while (glyphSpawnAccumulator >= 1f) {
                 glyphSpawnAccumulator -= 1f
@@ -360,7 +360,7 @@ class EyeView @JvmOverloads constructor(
     }
 
     private fun spawnGlyph(cx: Float, cy: Float, vibe: Float) {
-        if (glyphs.size > 18) return
+        if (glyphs.size > 24) return
         val side = if (Random.nextBoolean()) -1f else 1f
         val startX = cx + side * width * (0.13f + Random.nextFloat() * 0.18f)
         val startY = cy + height * (Random.nextFloat() * 0.24f - 0.12f)
@@ -380,7 +380,7 @@ class EyeView @JvmOverloads constructor(
                 age = 0f,
                 ttl = 1.2f + Random.nextFloat() * 1.4f,
                 glyph = glyph,
-                size = height * (0.038f + vibe * 0.03f + Random.nextFloat() * 0.018f),
+                size = height * (0.046f + vibe * 0.04f + Random.nextFloat() * 0.024f),
             )
         )
     }

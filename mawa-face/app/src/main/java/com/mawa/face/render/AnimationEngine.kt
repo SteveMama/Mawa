@@ -283,7 +283,7 @@ class AnimationEngine {
         } else {
             styleMood.opennessBase * blinkStyleScale(styleMood)
         }
-        opennessTarget += warmth * 0.06f + playful * 0.04f - protective * 0.05f - study * 0.03f
+        opennessTarget += warmth * 0.08f + playful * 0.06f - protective * 0.08f - study * 0.05f
         opennessTarget = (opennessTarget * (cloud?.openness ?: 1f) - (cloud?.squint ?: 0f) * 0.22f)
             .coerceIn(0f, 1.1f)
         opennessTarget = (opennessTarget + visualEnergy * 0.09f * (0.5f + 0.5f *
@@ -302,9 +302,9 @@ class AnimationEngine {
         var pupilTarget = if (startled) 0.7f else styleMood.pupilScale *
             (1f + 0.25f * lastProx.coerceAtMost(0.4f) + 0.42f * beatPulse + 0.18f * visualEnergy) *
             (cloud?.pupilScale ?: 1f)
-        pupilTarget = (pupilTarget + playful * 0.07f - warmth * 0.03f - study * 0.04f).coerceIn(0.78f, 1.55f)
+        pupilTarget = (pupilTarget + playful * 0.10f - warmth * 0.04f - study * 0.07f).coerceIn(0.72f, 1.62f)
         var lidTarget = if (startled) 8f else styleMood.lidAngle + (cloud?.squint ?: 0f) * 8f
-        lidTarget += protective * 3.6f + study * 2.4f - warmth * 1.8f - playful * 1.2f
+        lidTarget += protective * 5.0f + study * 3.3f - warmth * 2.4f - playful * 1.8f
 
         // Blink shape (per eye) and one-shot LOCK_ON scripting.
         var leftOpen = openBase * blinkFactor(clock, blinkFloor)
@@ -328,12 +328,12 @@ class AnimationEngine {
 
         val expressionWave = sin(clock * 2.0 * Math.PI * 0.37).toFloat() * expressiveness
         val expressionLift = sin(clock * 2.0 * Math.PI * 0.71 + 1.1).toFloat() * expressiveness
-        leftOpen = (leftOpen + expressionWave * (0.045f + playful * 0.015f) + beatPulse * 0.018f + warmth * 0.025f)
+        leftOpen = (leftOpen + expressionWave * (0.065f + playful * 0.030f) + beatPulse * 0.026f + warmth * 0.035f)
             .coerceIn(0f, 1.12f)
-        rightOpen = (rightOpen - expressionWave * (0.038f + playful * 0.010f) + beatPulse * 0.012f + warmth * 0.018f)
+        rightOpen = (rightOpen - expressionWave * (0.056f + playful * 0.022f) + beatPulse * 0.020f + warmth * 0.028f)
             .coerceIn(0f, 1.12f)
-        val leftLidTarget = lidTarget + expressionWave * (5.5f + playful * 1.8f) + expressionLift * 2.2f
-        val rightLidTarget = -lidTarget + expressionWave * (3.8f + playful * 1.4f) - expressionLift * 2.0f
+        val leftLidTarget = lidTarget + expressionWave * (7.2f + playful * 2.8f) + expressionLift * 3.4f
+        val rightLidTarget = -lidTarget + expressionWave * (5.2f + playful * 2.1f) - expressionLift * 3.0f
 
         // Independent ocular tremor keeps fixations alive without reading as jitter.
         tremorClock += dtSec
@@ -352,10 +352,10 @@ class AnimationEngine {
         val slowDriftY = (12.0 * sin(clock * 2.0 * Math.PI / 470.0 + 1.3)).toFloat()
         val swayLevel = maxOf(grooveLevel, cloud?.sway ?: 0f) + warmth * 0.08f + playful * 0.12f
         val bounceLevel = maxOf(grooveLevel, cloud?.bounce ?: 0f) + playful * 0.10f
-        val grooveSway = sin(clock * 2.0 * Math.PI * (1.2 + expressiveness * 1.4)).toFloat() * 8f * swayLevel
+        val grooveSway = sin(clock * 2.0 * Math.PI * (1.2 + expressiveness * 1.4)).toFloat() * 12f * swayLevel
         val grooveBounce = (0.4f + 0.6f * sin(clock * 2.0 * Math.PI * 3.2).toFloat()) *
-            16f * bounceLevel
-        val theatricalLean = sin(clock * 2.0 * Math.PI * 0.23 + 0.8).toFloat() * 6f * (expressiveness + warmth * 0.22f)
+            22f * bounceLevel
+        val theatricalLean = sin(clock * 2.0 * Math.PI * 0.23 + 0.8).toFloat() * 9f * (expressiveness + warmth * 0.22f)
         // A gentle breathing bob so the whole face rises and falls when at rest.
         val breathBob = if (sleeping) 0f else sin(clock * 2.0 * Math.PI * BREATH_HZ).toFloat() * 3.5f
         driftX = slowDriftX + grooveSway + theatricalLean

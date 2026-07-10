@@ -288,6 +288,49 @@ function blendAnimation(base: SceneAnimation, candidate: Record<string, unknown>
   };
 }
 
+function amplifyUnit(value: number, gain: number, floor = 0): number {
+  if (value <= floor) return 0;
+  const shifted = (value - floor) / (1 - floor);
+  return Math.min(1, Math.max(0, floor + shifted * gain));
+}
+
+function makeAnimationVivid(animation: SceneAnimation, mood: MawaMood): SceneAnimation {
+  const musical = animation.bars > 0.08 || animation.glyphs > 0.08;
+  const charged = mood === "excited" || mood === "suspicious";
+  const soft = mood === "sleepy";
+  return {
+    ...animation,
+    energy: charged
+      ? amplifyUnit(animation.energy, 1.35, 0.08)
+      : soft
+        ? clamp(animation.energy, 0, 0.48, animation.energy)
+        : amplifyUnit(animation.energy, 1.18, 0.06),
+    expressiveness: charged
+      ? amplifyUnit(animation.expressiveness, 1.42, 0.08)
+      : amplifyUnit(animation.expressiveness, 1.28, 0.06),
+    aura: charged || musical
+      ? amplifyUnit(animation.aura, 1.55, 0.06)
+      : amplifyUnit(animation.aura, 1.22, 0.08),
+    bars: musical ? amplifyUnit(animation.bars, 1.7, 0.04) : animation.bars,
+    glyphs: musical ? amplifyUnit(animation.glyphs, 1.75, 0.04) : animation.glyphs,
+    sway: amplifyUnit(animation.sway, charged ? 1.4 : 1.22, 0.05),
+    bounce: amplifyUnit(animation.bounce, charged || musical ? 1.55 : 1.18, 0.06),
+    squint: charged ? amplifyUnit(animation.squint, 1.25, 0.05) : animation.squint,
+    openness: clamp(
+      charged ? animation.openness * 1.04 : animation.openness,
+      0.55,
+      1.15,
+      animation.openness,
+    ),
+    pupilScale: clamp(
+      charged ? animation.pupilScale * 1.06 : animation.pupilScale,
+      0.8,
+      1.45,
+      animation.pupilScale,
+    ),
+  };
+}
+
 function speechKeyFrom(text: string): string {
   return text
     .trim()
@@ -319,13 +362,14 @@ function parseAmbient(raw: string): AmbientThought {
   const mood = normalizeMood(parsed.mood ?? "neutral");
   const speechText = String(parsed.speech?.text ?? "").trim().slice(0, 72);
   const shouldSpeak = Boolean(parsed.speech?.shouldSpeak) && speechText.length > 0;
+  const vividAnimation = makeAnimationVivid(blendAnimation(MOOD_ANIMATION[mood], parsed.animation), mood);
   return {
     mood,
     eyebrow: normalizeEyebrow(parsed.eyebrow),
     title: (parsed.title ?? "Quiet orbit").trim().slice(0, 20),
     detail: (parsed.detail ?? "Keeping the room lightly watched.").trim().slice(0, 44),
     accent: normalizeAccent(parsed.accent, mood),
-    animation: blendAnimation(MOOD_ANIMATION[mood], parsed.animation),
+    animation: vividAnimation,
     companion: {
       stance: normalizeStance(parsed.stance),
       intent: normalizeIntent(parsed.intent),
